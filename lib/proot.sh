@@ -19,15 +19,20 @@ proot_enter() {
   fi
   configure_rootfs_dns "$rootfs" "${DNS:-1.1.1.1}"
 
-  # Standard proot bindings expose Android kernel fs read-only-ish to the guest.
+  # Bind Android kernel filesystems read-only-ish into the guest.
   local binds=(
     --bind=/dev
     --bind=/proc
     --bind=/sys
     --bind=/dev/urandom:/dev/random
   )
-  [ -e /sdcard ] && binds+=(--bind=/sdcard)
-  [ -e /storage ] && binds+=(--bind=/storage)
+  # Binding Android shared storage (/sdcard, /storage) into a root-privileged
+  # guest means a destructive command inside Linux could wipe Android files.
+  # It is therefore OPT-IN (PROOT_BIND_STORAGE=1) and off by default.
+  if [ "${PROOT_BIND_STORAGE:-0}" = "1" ]; then
+    [ -e /sdcard ] && binds+=(--bind=/sdcard)
+    [ -e /storage ] && binds+=(--bind=/storage)
+  fi
 
   local shell="/bin/bash"
   [ -x "$rootfs/bin/bash" ] || shell="/bin/sh"

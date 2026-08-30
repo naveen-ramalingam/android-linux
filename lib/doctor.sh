@@ -52,8 +52,13 @@ doctor_run() {
     else
       _fail "Rootfs present but missing /bin/sh - extraction may be incomplete"
     fi
-    # Broken symlinks (sample check, non-fatal)
-    if find "$LINUX_ROOT" -maxdepth 2 -xtype l 2>/dev/null | head -1 | grep -q .; then
+    # Broken symlinks (sample check, non-fatal). Portable: toybox/busybox find
+    # lack GNU's -xtype, so use -type l and test each link's target with [ -e ].
+    local l broken=0
+    while IFS= read -r l; do
+      [ -e "$l" ] || { broken=1; break; }
+    done < <(find "$LINUX_ROOT" -maxdepth 2 -type l 2>/dev/null | head -50)
+    if [ "$broken" = 1 ]; then
       _warn "Some broken symlinks found in rootfs (usually harmless)"
     fi
   fi

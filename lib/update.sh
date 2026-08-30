@@ -11,6 +11,11 @@ update_run() {
     log_info "[dry-run] would update scripts in $APP_HOME"
     return 0
   fi
+  # Self-update replaces these scripts with downloaded code; confirm first.
+  if ! confirm "Download and apply the latest AndroidLinux scripts?" Y; then
+    log_info "Update cancelled."
+    return 0
+  fi
 
   if [ -d "$APP_HOME/.git" ] && have_cmd git; then
     ( cd "$APP_HOME" && git pull --ff-only ) && { log_ok "Updated via git."; return 0; }
@@ -18,10 +23,16 @@ update_run() {
   fi
 
   # Archive fallback: download tarball and refresh script files only.
-  local tmp; tmp=$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/al-update.$$")
+  local tmp
+  tmp=$(mktemp -d 2>/dev/null) || { log_error "mktemp failed; cannot create a safe temp directory"; return 1; }
   mkdir -p "$tmp"
   local tarball="$tmp/src.tar.gz"
   if fetch_file "${ANDROID_LINUX_REPO_GIT%.git}/archive/refs/heads/main.tar.gz" "$tarball"; then
+    if ! tar_is_safe "$tarball"; then
+      log_error "Update tarball failed safety validation; aborting."
+      rm -rf "$tmp" 2>/dev/null || true
+      return 1
+    fi
     if tar -xzf "$tarball" -C "$tmp" 2>/dev/null; then
       local src; src=$(find "$tmp" -maxdepth 1 -type d -name 'android-linux*' | head -1)
       if [ -n "$src" ]; then

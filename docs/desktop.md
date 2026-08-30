@@ -30,7 +30,23 @@ android-linux desktop status
 android-linux desktop stop
 ```
 
-Connect with any VNC viewer to `<device-ip>:5901`. The address is printed after start.
+By default VNC binds to **localhost only** (`VNC_LOCALHOST=1`) and a random VNC
+password is generated during `desktop install`. Connect from your computer with an
+SSH tunnel:
+
+```bash
+ssh -p 2222 -L 5901:localhost:5901 android@<device-ip>
+# then point your VNC viewer at localhost:5901
+```
+
+To expose VNC to the local network instead (only on a trusted network), set
+`VNC_LOCALHOST=0` in your config, then connect a VNC viewer to `<device-ip>:5901`.
+
+## Security notes
+
+- VNC authentication is weak; the localhost default + SSH tunnel is strongly preferred.
+- A random VNC password is set automatically. Re-generate with `vncpasswd` inside the
+  guest if needed.
 
 ## Termux:X11
 

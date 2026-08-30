@@ -71,12 +71,20 @@ run_as_root() {
   fi
   if [ "$(safe_get id -u)" = "0" ]; then
     "$@"
-  elif [ -n "${SU_BIN:-}" ]; then
-    "$SU_BIN" -c "$*"
-  else
-    log_error "run_as_root: no root available for: $*"
-    return 1
+    return $?
   fi
+  if [ -n "${SU_BIN:-}" ]; then
+    # Quote each argument so the root shell reconstructs the exact argv and no
+    # argument can inject additional commands.
+    local quoted="" a
+    for a in "$@"; do
+      quoted="$quoted $(shell_quote "$a")"
+    done
+    "$SU_BIN" -c "${quoted# }"
+    return $?
+  fi
+  log_error "run_as_root: no root available for: $*"
+  return 1
 }
 
 # timeout_run: run a command with a timeout if `timeout` exists, else run plain.

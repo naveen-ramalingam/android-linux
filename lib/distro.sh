@@ -8,14 +8,14 @@
 distro_resolve() {
   local d="${1:-${DISTRO:-debian}}"
   case "$d" in
-    debian)        DISTRO_FN="debian";  DISTRO_SUITE="trixie";  DISTRO_DISPLAY="Debian 13 (trixie)" ;;
-    debian-stable) DISTRO_FN="debian";  DISTRO_SUITE="bookworm";DISTRO_DISPLAY="Debian 12 (bookworm)" ;;
-    ubuntu)        DISTRO_FN="ubuntu";  DISTRO_SUITE="noble";   DISTRO_DISPLAY="Ubuntu 24.04 LTS" ;;
-    alpine)        DISTRO_FN="alpine";  DISTRO_SUITE="3.20";    DISTRO_DISPLAY="Alpine Linux 3.20" ;;
-    archarm)       DISTRO_FN="archarm"; DISTRO_SUITE="latest";  DISTRO_DISPLAY="Arch Linux ARM" ;;
+    debian)        DISTRO_FN="debian";  DISTRO_SUITE="trixie";  DISTRO_DISPLAY="Debian 13 (trixie)";  DISTRO_HAS_CHECKSUM=1 ;;
+    debian-stable) DISTRO_FN="debian";  DISTRO_SUITE="bookworm";DISTRO_DISPLAY="Debian 12 (bookworm)"; DISTRO_HAS_CHECKSUM=1 ;;
+    ubuntu)        DISTRO_FN="ubuntu";  DISTRO_SUITE="noble";   DISTRO_DISPLAY="Ubuntu 24.04 LTS";    DISTRO_HAS_CHECKSUM=1 ;;
+    alpine)        DISTRO_FN="alpine";  DISTRO_SUITE="3.20";    DISTRO_DISPLAY="Alpine Linux 3.20";   DISTRO_HAS_CHECKSUM=1 ;;
+    archarm)       DISTRO_FN="archarm"; DISTRO_SUITE="latest";  DISTRO_DISPLAY="Arch Linux ARM";      DISTRO_HAS_CHECKSUM=0 ;;
     *) log_error "Unknown distro: $d"; return 1 ;;
   esac
-  export DISTRO_FN DISTRO_SUITE DISTRO_DISPLAY
+  export DISTRO_FN DISTRO_SUITE DISTRO_DISPLAY DISTRO_HAS_CHECKSUM
 }
 
 # --- HTTP helpers -----------------------------------------------------------
@@ -66,23 +66,44 @@ sha256_of() {
   else return 1; fi
 }
 
-# verify_sha256: compare a file against an expected hash. Empty expected -> skip.
+# verify_sha256: compare a file against an expected hash. Fails closed when a
+# checksum-expected distro cannot be verified, unless explicitly overridden.
 verify_sha256() {
   local file="$1" expected="$2"
-  if [ -z "$expected" ]; then
-    log_warn "No checksum available for $(basename "$file"); skipping verification"
-    return 0
+  local actual="" have_tool=1
+  actual=$(sha256_of "$file") || have_tool=0
+
+  if [ -n "$expected" ] && [ "$have_tool" = 1 ]; then
+    if [ "$actual" = "$expected" ]; then
+      log_ok "Checksum verified: $(basename "$file")"
+      return 0
+    fi
+    error_report "Checksum mismatch for $(basename "$file")" \
+      "Expected $expected but got $actual." \
+      "Delete the file in downloads/ and retry, or check for a corrupted mirror."
+    return 1
   fi
-  local actual; actual=$(sha256_of "$file") || {
-    log_warn "No sha256 tool available; cannot verify download"; return 0; }
-  if [ "$actual" = "$expected" ]; then
-    log_ok "Checksum verified: $(basename "$file")"
-    return 0
+
+  # Verification is impossible (no expected hash, or no hash tool available).
+  if [ "${DISTRO_HAS_CHECKSUM:-1}" = "1" ]; then
+    if [ "$have_tool" = 0 ]; then
+      log_warn "No SHA256 tool is available, so this download cannot be verified."
+    else
+      log_warn "A checksum for $(basename "$file") could not be obtained from the source."
+    fi
+    if confirm "Proceed WITHOUT verification (not recommended)?" N; then
+      log_warn "Continuing with an UNVERIFIED download."
+      return 0
+    fi
+    error_report "Refusing to use an unverified download" \
+      "This distribution publishes checksums, but verification was not possible." \
+      "Install a sha256 tool, check your network, then retry."
+    return 1
   fi
-  error_report "Checksum mismatch for $(basename "$file")" \
-    "Expected $expected but got $actual." \
-    "Delete the file in downloads/ and retry, or check for a corrupted mirror."
-  return 1
+
+  # Distro genuinely publishes no checksum (e.g. Arch Linux ARM).
+  log_warn "No published checksum for $(basename "$file") - installing unverified."
+  return 0
 }
 
 # --- Public API -------------------------------------------------------------
@@ -115,6 +136,16 @@ distro_download() {
       "Try Alpine (broad arch support) or choose a different distro."
     return 1
   }
+  # Arch Linux ARM is served over HTTP with no published checksum; treat it as
+  # untrusted and require explicit confirmation.
+  if [ "${DISTRO_FN:-}" = "archarm" ]; then
+    log_warn "Arch Linux ARM downloads use HTTP and CANNOT be checksum-verified."
+    log_warn "A network attacker could substitute a malicious image."
+    if ! confirm "Install Arch Linux ARM anyway (unverified)?" N; then
+      log_info "Aborting Arch Linux ARM install."
+      return 1
+    fi
+  fi
   local url name dest
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
     log_info "[dry-run] would resolve + download the $DISTRO_DISPLAY rootfs for $ARCH"
@@ -148,11 +179,25 @@ distro_extract() {
     return 0
   fi
   [ -f "$archive" ] || { log_error "Archive not found: $archive"; return 1; }
+
+  # Security: reject archives containing ".." traversal or absolute paths.
+  tar_is_safe "$archive" || { log_error "Refusing to extract an unsafe archive."; return 1; }
+
+  # Clean any previous rootfs so a partially-extracted (interrupted) install is
+  # not merged with this one, which could leave a corrupted hybrid filesystem.
+  if [ -e "$rootfs" ]; then
+    log_info "Cleaning previous rootfs before extraction..."
+    safe_remove "$rootfs" "$LINUX_BASE" || { log_error "Could not clean previous rootfs"; return 1; }
+  fi
   mkdir -p "$rootfs" 2>/dev/null || true
   state_set EXTRACTING
   log_info "Extracting rootfs (this can take a while)..."
 
-  local taropts="--numeric-owner"
+  # Use --numeric-owner only when tar supports it (GNU). Toybox/busybox may not.
+  local taropts=""
+  if tar --help 2>&1 | grep -q 'numeric-owner'; then
+    taropts="--numeric-owner"
+  fi
   # Under proot we relocate device-node/link creation; under root we can extract fully.
   local extractor="tar"
   if [ "${INSTALL_MODE:-}" = "proot" ] && have_cmd proot; then

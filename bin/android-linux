@@ -125,6 +125,11 @@ init_runtime() {
     detect_termux; detect_root
     LINUX_BASE=$(fs_default_base)
   fi
+  # Never operate on a protected system location, regardless of subcommand.
+  if is_forbidden_path "$LINUX_BASE"; then
+    log_error "Refusing to use protected system path as install base: $LINUX_BASE"
+    exit 1
+  fi
   : "${LINUX_ROOT:=$LINUX_BASE/rootfs}"
   : "${BACKUP_DIR:=$LINUX_BASE/backups}"
   [ -n "$OPT_DISTRO" ] && DISTRO="$OPT_DISTRO"

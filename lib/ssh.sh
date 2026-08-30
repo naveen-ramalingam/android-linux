@@ -5,6 +5,8 @@
 ssh_install() {
   local port="${1:-${SSH_PORT:-2222}}"
   local user="${LINUX_USER:-android}"
+  validate_port "$port" || { log_error "Invalid SSH port: $port"; return 1; }
+  validate_name "$user" || { log_error "Invalid Linux username: $user (use lowercase letters, digits, _ or -)"; return 1; }
   log_info "Installing OpenSSH server in ${DISTRO_DISPLAY:-Linux}..."
 
   case "${DISTRO_FN:-debian}" in
@@ -28,6 +30,7 @@ ssh_install() {
 
 ssh_ensure_user() {
   local user="$1"
+  validate_name "$user" || { log_error "Invalid username; skipping user creation"; return 1; }
   case "${DISTRO_FN:-debian}" in
     alpine)
       linux_run "id ${user} >/dev/null 2>&1 || adduser -D ${user} 2>/dev/null || true" ;;
@@ -39,8 +42,16 @@ ssh_ensure_user() {
     pw=$(ask_secret "Set password for guest user '${user}'")
     pw2=$(ask_secret "Confirm password")
     if [ -n "$pw" ] && [ "$pw" = "$pw2" ]; then
-      linux_run "printf '%s:%s' '${user}' '${pw}' | chpasswd 2>/dev/null || echo '${user}:${pw}' | chpasswd"
-      log_ok "Password set for ${user}"
+      if have_cmd base64; then
+        # Encode user:password as base64 on the host; the base64 alphabet has no
+        # shell metacharacters, so it cannot inject commands in the guest shell.
+        local cred
+        cred=$(printf '%s:%s' "$user" "$pw" | base64 | tr -d '\n')
+        linux_run "printf '%s' '${cred}' | base64 -d | chpasswd"
+        log_ok "Password set for ${user}"
+      else
+        log_warn "base64 not found; password not set. Run 'passwd ${user}' inside the guest."
+      fi
     else
       log_warn "Passwords empty or mismatched; skipped. Set later with 'passwd ${user}' inside the guest."
     fi
@@ -51,6 +62,7 @@ ssh_ensure_user() {
 
 ssh_start() {
   local port="${SSH_PORT:-2222}"
+  validate_port "$port" || { log_error "Invalid SSH port: $port"; return 1; }
   log_info "Starting sshd on port ${port}..."
   case "${DISTRO_FN:-debian}" in
     alpine) linux_run "/usr/sbin/sshd -p ${port}" ;;

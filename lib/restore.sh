@@ -13,7 +13,11 @@ restore_from() {
   log_info "Validating backup archive..."
   local listing
   listing=$(restore_list "$archive") || { log_error "Cannot read archive (corrupt or unknown format)"; return 1; }
-  if ! printf '%s\n' "$listing" | grep -q "${rel_base}/rootfs"; then
+
+  # Security: reject archives whose members could escape the restore directory.
+  tar_is_safe "$archive" || { log_error "Refusing to restore an unsafe archive."; return 1; }
+
+  if ! printf '%s\n' "$listing" | grep -qF "${rel_base}/rootfs"; then
     error_report "Backup does not contain a recognizable rootfs" \
       "Expected a '${rel_base}/rootfs' entry inside the archive." \
       "Make sure you are restoring an AndroidLinux backup."

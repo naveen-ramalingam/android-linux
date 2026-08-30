@@ -15,7 +15,7 @@ fi
 ANDROID_LINUX_COMMON_LOADED=1
 
 # --- Version ----------------------------------------------------------------
-ANDROID_LINUX_VERSION="1.0.0"
+ANDROID_LINUX_VERSION="1.1.0"
 ANDROID_LINUX_NAME="AndroidLinux"
 
 # --- Base directories -------------------------------------------------------
@@ -121,6 +121,72 @@ first_cmd() {
     if have_cmd "$c"; then printf '%s' "$c"; return 0; fi
   done
   return 1
+}
+
+# shell_quote: POSIX-safe single-quote a string for re-parsing by a shell.
+# Prevents command injection when building `su -c` / `sh -c` command strings.
+shell_quote() {
+  local s="$1" q="'"
+  s=${s//$q/$q\\$q$q}
+  printf '%s%s%s' "$q" "$s" "$q"
+}
+
+# real_path: resolve a path to its physical location (follows symlinks).
+# Falls back to lexical normalization when readlink is unavailable or fails.
+real_path() {
+  local p="$1" r
+  if have_cmd readlink; then
+    r=$(readlink -f "$p" 2>/dev/null)
+    [ -n "$r" ] && { printf '%s' "$r"; return 0; }
+  fi
+  normalize_path "$p"
+}
+
+# --- Input validators -------------------------------------------------------
+# validate_port: true if $1 is a valid TCP port number.
+validate_port() {
+  case "${1:-}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+# validate_name: true if $1 is a safe POSIX-style username (no metacharacters).
+validate_name() {
+  local n="${1:-}"
+  [ -n "$n" ] || return 1
+  [ "${#n}" -le 32 ] || return 1
+  case "$n" in [a-z_]*) : ;; *) return 1 ;; esac
+  case "$n" in *[!a-z0-9_-]*) return 1 ;; esac
+  return 0
+}
+
+# --- Archive safety ---------------------------------------------------------
+# tar_list: list members of an archive (handles gz/xz/zst by extension).
+tar_list() {
+  local archive="$1"
+  case "$archive" in
+    *.zst) have_cmd zstd || return 1; zstd -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
+    *.gz|*.tgz) tar -tzf "$archive" 2>/dev/null ;;
+    *) tar -tf "$archive" 2>/dev/null ;;
+  esac
+}
+
+# tar_is_safe: reject archives containing absolute paths or ".." traversal.
+# Fail-closed: if members cannot be listed, the archive is treated as unsafe.
+tar_is_safe() {
+  local archive="$1" listing bad
+  listing=$(tar_list "$archive") || {
+    log_error "Cannot list archive members (unsupported/corrupt): $(basename "$archive")"
+    return 1
+  }
+  bad=$(printf '%s\n' "$listing" | grep -E '(^/|(^|/)\.\.(/|$))' | head -5)
+  if [ -n "$bad" ]; then
+    log_error "Archive contains unsafe member paths (absolute or '..'):"
+    printf '%s\n' "$bad" | sed 's/^/    /' >&2
+    return 1
+  fi
+  return 0
 }
 
 # --- TTY / interactivity ----------------------------------------------------
@@ -273,6 +339,23 @@ safe_remove() {
     log_error "safe_remove: '$norm' is outside the AndroidLinux base '$base' - refusing"
     return 1
   fi
+  # Resolve symlinks and re-check, so a link inside the base cannot point at a
+  # protected location (symlink escape).
+  local rtarget rbase
+  rtarget=$(real_path "$norm")
+  rbase=$(real_path "$base")
+  if [ -n "$rtarget" ] && [ -n "$rbase" ]; then
+    if is_forbidden_path "$rtarget"; then
+      log_error "safe_remove: resolved target '$rtarget' is a protected path - refusing"
+      return 1
+    fi
+    case "$rtarget/" in
+      "$rbase/"*) : ;;
+      *)
+        log_error "safe_remove: resolved target '$rtarget' escapes base '$rbase' - refusing"
+        return 1 ;;
+    esac
+  fi
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
     log_info "[dry-run] would remove: $norm"
     return 0
@@ -283,7 +366,7 @@ safe_remove() {
 
 # --- Config -----------------------------------------------------------------
 # Config keys are simple KEY=VALUE lines. Values are read into shell variables.
-AL_CONFIG_KEYS="LINUX_BASE LINUX_ROOT DISTRO INSTALL_MODE SSH_PORT DESKTOP VNC_PORT AUTO_START DNS BACKUP_DIR LINUX_USER"
+AL_CONFIG_KEYS="LINUX_BASE LINUX_ROOT DISTRO INSTALL_MODE SSH_PORT DESKTOP VNC_PORT VNC_LOCALHOST AUTO_START DNS BACKUP_DIR LINUX_USER PROOT_BIND_STORAGE"
 
 config_load() {
   [ -f "$ANDROID_LINUX_CONFIG_FILE" ] || return 0

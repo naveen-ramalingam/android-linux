@@ -23,6 +23,23 @@ err()  { printf '[x] %s\n' "$*" >&2; }
 die()  { err "$*"; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# is_protected_path: true if $1 is at/under a system location we must not touch.
+is_protected_path() {
+  local p="$1" root
+  case "$p" in ""|"/") return 0 ;; esac
+  for root in /system /vendor /product /proc /sys /dev /etc /bin /sbin /usr /boot; do
+    case "$p" in
+      "$root"|"$root/"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# tar_has_traversal: true if a .tar.gz contains absolute or ".." member paths.
+tar_has_traversal() {
+  tar -tzf "$1" 2>/dev/null | grep -qE '(^/|(^|/)\.\.(/|$))'
+}
+
 # --- 1. Detect Termux / environment ----------------------------------------
 IS_TERMUX=0
 case "${PREFIX:-}" in *com.termux*) IS_TERMUX=1 ;; esac
@@ -41,10 +58,9 @@ fi
 APP_DIR="${INSTALL_PARENT}/android-linux"
 
 # Safety guard: never (re)install into a protected system location.
-case "$APP_DIR/" in
-  "/opt/android-linux/"|"/system/"*|"/vendor/"*|"/product/"*|"/proc/"*|"/sys/"*|"/dev/"*|"/etc/"*|"/usr/"*|"/bin/"*|"/sbin/"*)
-    die "Refusing to install into protected path: $APP_DIR (check \$HOME/\$PREFIX)" ;;
-esac
+if is_protected_path "$APP_DIR"; then
+  die "Refusing to install into protected path: $APP_DIR (check \$HOME/\$PREFIX)"
+fi
 [ -n "$APP_DIR" ] || die "Could not determine install directory"
 
 # --- 2. Verify architecture -------------------------------------------------
@@ -88,10 +104,13 @@ if have git; then
   fi
 else
   say "Downloading archive..."
-  TMP="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/al.$$")"; mkdir -p "$TMP"
+  TMP="$(mktemp -d 2>/dev/null)" || die "mktemp failed; cannot create a safe temporary directory."
   fetch "$REPO_TAR" "$TMP/src.tar.gz" || die "Download failed. Check REPO_USER in install.sh."
   # --- 5. Verify files where possible ---
   if ! tar -tzf "$TMP/src.tar.gz" >/dev/null 2>&1; then die "Downloaded archive is corrupt."; fi
+  if tar_has_traversal "$TMP/src.tar.gz"; then
+    die "Downloaded archive contains unsafe member paths; refusing to install."
+  fi
   tar -xzf "$TMP/src.tar.gz" -C "$TMP"
   SRC="$(find "$TMP" -maxdepth 1 -type d -name "${REPO_NAME}*" | head -1)"
   [ -n "$SRC" ] || die "Unexpected archive layout."

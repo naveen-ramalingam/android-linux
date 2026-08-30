@@ -12,6 +12,8 @@ bytes_available() {
     local line
     line=$(df -Pk "$path" 2>/dev/null | awk 'NR==2{print $4}') \
       || line=$(df -k "$path" 2>/dev/null | awk 'NR==2{print $4}')
+    # Only accept an all-numeric field (df layouts vary across toybox/busybox).
+    case "$line" in ''|*[!0-9]*) line="" ;; esac
     if [ -n "$line" ]; then
       avail=$(( line * 1024 ))
     fi
