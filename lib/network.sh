@@ -156,6 +156,37 @@ configure_rootfs_environment() {
     write_rootfs_file "$rootfs/etc/hosts" "$hosts_content" || true
   fi
 
+  # 1b. Ensure /etc/passwd has a root entry — dpkg resolves users via getpwnam()
+  # and aborts with "unknown system user" if root is missing from passwd.
+  if [ -f "$rootfs/etc/passwd" ]; then
+    if ! run_as_root grep -q "^root:" "$rootfs/etc/passwd" 2>/dev/null \
+       && ! grep -q "^root:" "$rootfs/etc/passwd" 2>/dev/null; then
+      local passwd_tmp; passwd_tmp=$(run_as_root cat "$rootfs/etc/passwd" 2>/dev/null || cat "$rootfs/etc/passwd" 2>/dev/null || true)
+      write_rootfs_file "$rootfs/etc/passwd" "root:x:0:0:root:/root:/bin/bash
+${passwd_tmp}" || true
+    fi
+  else
+    write_rootfs_file "$rootfs/etc/passwd" \
+"root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+_apt:x:42:65534::/nonexistent:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin" || true
+  fi
+
+  # 1c. Ensure /etc/nsswitch.conf uses files — required for getpwnam() in chroot.
+  if [ ! -f "$rootfs/etc/nsswitch.conf" ]; then
+    write_rootfs_file "$rootfs/etc/nsswitch.conf" \
+"passwd:   files
+group:    files
+shadow:   files
+hosts:    files dns
+networks: files
+protocols: db files
+services: db files
+ethers:   db files
+rpc:      db files" || true
+  fi
+
   # 2. Fix Debian/Ubuntu APT on Android & populate sources.list if missing
   if [ -d "$rootfs/etc/apt" ] || [ -f "$rootfs/usr/bin/apt-get" ] || [ -f "$rootfs/usr/bin/apt" ]; then
     write_rootfs_file "$rootfs/etc/apt/apt.conf.d/99android" 'APT::Sandbox::User "root";' || true

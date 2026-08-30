@@ -97,6 +97,17 @@ guest_pkg_install() {
                 cp -f \"\$_kf\" /etc/apt/trusted.gpg.d/ 2>/dev/null || true; \
             done; \
         fi; \
+        if [ -f /var/lib/dpkg/statoverride ]; then \
+          while IFS= read -r _so_line; do \
+            case \"$_so_line\" in ''|'#'*) continue ;; esac; \
+            _so_user=\"${_so_line%% *}\"; \
+            _so_path=\"${_so_line##* }\"; \
+            if ! getent passwd \"$_so_user\" >/dev/null 2>&1 && \
+               ! grep -q \"^${_so_user}:\" /etc/passwd 2>/dev/null; then \
+              dpkg-statoverride --remove \"$_so_path\" 2>/dev/null || true; \
+            fi; \
+          done < /var/lib/dpkg/statoverride; \
+        fi; \
         apt-get update && apt-get install -y --fix-missing $pkgs"
       ;;
     alpine)
