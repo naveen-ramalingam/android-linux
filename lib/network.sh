@@ -12,25 +12,43 @@ detect_network() {
   # Primary IPv4 (best-effort, several fallbacks).
   if have_cmd ip; then
     NET_IPV4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
-    [ -z "$NET_IPV4" ] && NET_IPV4=$(ip -4 addr 2>/dev/null | awk '/inet /{print $2}' | grep -v '^127' | head -1 | cut -d/ -f1)
-    NET_IPV6=$(ip -6 addr 2>/dev/null | awk '/inet6 /{print $2}' | grep -vi '^fe80\|^::1' | head -1 | cut -d/ -f1)
-  elif have_cmd ifconfig; then
-    NET_IPV4=$(ifconfig 2>/dev/null | awk '/inet /{print $2}' | grep -v '^127' | head -1)
+    [ -z "$NET_IPV4" ] && NET_IPV4=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+  fi
+  if [ -z "$NET_IPV4" ] && have_cmd getprop; then
+    NET_IPV4=$(getprop_safe dhcp.wlan0.ipaddress)
+    [ -z "$NET_IPV4" ] && NET_IPV4=$(getprop_safe dhcp.wlan1.ipaddress)
+  fi
+  if [ -z "$NET_IPV4" ]; then
+    if have_cmd ip; then
+      NET_IPV4=$(ip -4 addr show 2>/dev/null | awk '/inet /{print $2}' | grep -v '^127' | head -1 | cut -d/ -f1)
+    elif have_cmd ifconfig; then
+      NET_IPV4=$(ifconfig 2>/dev/null | awk '/inet /{print $2}' | grep -v '^127' | head -1 | sed 's/addr://')
+    fi
   fi
 
-  # DNS from resolv.conf if present.
-  if [ -r /etc/resolv.conf ]; then
+  # Primary IPv6
+  if have_cmd ip; then
+    NET_IPV6=$(ip -6 addr show 2>/dev/null | awk '/inet6 /{print $2}' | grep -vi '^fe80\|^::1' | head -1 | cut -d/ -f1)
+  fi
+
+  # DNS from getprop or resolv.conf if present.
+  local android_dns; android_dns=$(getprop_safe net.dns1)
+  if [ -n "$android_dns" ]; then
+    NET_DNS="$android_dns"
+  elif [ -r /etc/resolv.conf ]; then
     local d
     d=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
     [ -n "$d" ] && NET_DNS="$d"
   fi
 
-  # Connectivity probe (ping first, then any http client, then getprop).
-  if have_cmd ping && timeout_run 5 ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then
+  # Connectivity probe (ping first, then any http client, then IP existence).
+  if have_cmd ping && timeout_run 3 ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then
     NET_ONLINE=1
-  elif have_cmd curl && timeout_run 8 curl -fsS -o /dev/null --max-time 6 https://1.1.1.1 2>/dev/null; then
+  elif have_cmd curl && timeout_run 5 curl -fsS -o /dev/null --max-time 4 https://1.1.1.1 2>/dev/null; then
     NET_ONLINE=1
-  elif have_cmd wget && timeout_run 8 wget -q -O /dev/null --timeout=6 https://1.1.1.1 2>/dev/null; then
+  elif have_cmd wget && timeout_run 5 wget -q -O /dev/null --timeout=4 https://1.1.1.1 2>/dev/null; then
+    NET_ONLINE=1
+  elif [ -n "$NET_IPV4" ]; then
     NET_ONLINE=1
   fi
 
@@ -41,10 +59,38 @@ detect_network() {
 # net_status_print: human-readable network status.
 net_status_print() {
   detect_network
-  printf 'Network: %s\n' "$([ "$NET_ONLINE" = 1 ] && echo CONNECTED || echo OFFLINE)"
-  printf 'IPv4:    %s\n' "${NET_IPV4:-unknown}"
-  [ -n "$NET_IPV6" ] && printf 'IPv6:    %s\n' "$NET_IPV6"
-  printf 'DNS:     %s\n' "${NET_DNS:-unknown}"
+  printf '\n%s▸ Network & Device IP Information%s\n\n' "${C_BOLD}" "${C_RESET}"
+  printf '  %sStatus:%s       %s\n' "$C_BOLD" "$C_RESET" "$([ "$NET_ONLINE" = 1 ] && echo "${C_GREEN}CONNECTED (Online)${C_RESET}" || echo "${C_YELLOW}OFFLINE / Local only${C_RESET}")"
+  printf '  %sDevice IP:%s    %s\n' "$C_BOLD" "$C_RESET" "${NET_IPV4:-Not detected}"
+  [ -n "$NET_IPV6" ] && printf '  %sIPv6:%s         %s\n' "$C_BOLD" "$C_RESET" "$NET_IPV6"
+  printf '  %sDNS Server:%s   %s\n' "$C_BOLD" "$C_RESET" "${NET_DNS:-1.1.1.1}"
+  
+  # List all interface addresses
+  printf '\n  %sInterface IP Addresses:%s\n' "$C_BOLD" "$C_RESET"
+  local found_if=0
+  if have_cmd ip; then
+    while read -r iface ipaddr; do
+      [ -n "$iface" ] && [ -n "$ipaddr" ] || continue
+      printf '    • %-12s %s\n' "$iface:" "$ipaddr"
+      found_if=1
+    done < <(ip -o -4 addr show 2>/dev/null | awk '{print $2, $4}' | cut -d/ -f1)
+  elif have_cmd ifconfig; then
+    while read -r iface ipaddr; do
+      [ -n "$iface" ] && [ -n "$ipaddr" ] || continue
+      printf '    • %-12s %s\n' "$iface:" "$ipaddr"
+      found_if=1
+    done < <(ifconfig 2>/dev/null | awk '/^[a-zA-Z0-9]+/{iface=$1} /inet /{print iface, $2}' | sed 's/addr://')
+  fi
+  [ "$found_if" = 0 ] && [ -n "$NET_IPV4" ] && printf '    • %-12s %s\n' "default:" "$NET_IPV4"
+
+  # Show connection shortcuts for SSH and VNC
+  if [ -n "${NET_IPV4:-}" ]; then
+    printf '\n  %sConnection Shortcuts:%s\n' "$C_BOLD" "$C_RESET"
+    printf '    • SSH Command:  ssh %s@%s -p %s\n' "${LINUX_USER:-android}" "$NET_IPV4" "${SSH_PORT:-2222}"
+    printf '    • VNC Viewer:   %s:%s\n' "$NET_IPV4" "${VNC_PORT:-5901}"
+    printf '    • Local Device: 127.0.0.1:%s\n' "${VNC_PORT:-5901}"
+  fi
+  printf '\n'
 }
 
 # configure_rootfs_dns: write a resolv.conf into the target rootfs.

@@ -294,12 +294,12 @@ main_menu() {
   while true; do
     clear 2>/dev/null || true
     banner
-    detect_device; detect_android; detect_architecture; detect_root; detect_kernel
+    detect_device; detect_android; detect_architecture; detect_root; detect_kernel; detect_network
     
     printf ' %sDevice:%s  %-16s %sAndroid:%s %s\n' "${C_BOLD}" "${C_RESET}" "$DEV_MANUFACTURER $DEV_MODEL" "${C_BOLD}" "${C_RESET}" "$ANDROID_RELEASE"
     printf ' %sArch:%s    %-16s %sKernel:%s  %s\n' "${C_BOLD}" "${C_RESET}" "$(arch_label)" "${C_BOLD}" "${C_RESET}" "$KERNEL_VERSION"
-    printf ' %sRoot:%s    %-16s %sStatus:%s  %s\n' "${C_BOLD}" "${C_RESET}" "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo "${C_GREEN}YES${C_RESET}" || echo "${C_YELLOW}NO${C_RESET}")" "${C_BOLD}" "${C_RESET}" "$(is_installed && echo "${C_GREEN}Installed${C_RESET}" || echo "${C_DIM}Not installed${C_RESET}")"
-    [ -n "$DISTRO" ] && printf ' %sDistro:%s  %-16s\n' "${C_BOLD}" "${C_RESET}" "$DISTRO"
+    printf ' %sRoot:%s    %-16s %sIP:%s      %s\n' "${C_BOLD}" "${C_RESET}" "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo "${C_GREEN}YES${C_RESET}" || echo "${C_YELLOW}NO${C_RESET}")" "${C_BOLD}" "${C_RESET}" "${NET_IPV4:-Offline}"
+    printf ' %sDistro:%s  %-16s %sStatus:%s  %s\n' "${C_BOLD}" "${C_RESET}" "${DISTRO:-none}" "${C_BOLD}" "${C_RESET}" "$(is_installed && echo "${C_GREEN}Installed${C_RESET}" || echo "${C_DIM}Not installed${C_RESET}")"
     printf '\n'
     hr
     printf '\n'
@@ -309,7 +309,8 @@ main_menu() {
     printf '  %s[4]%s  Install Linux       %s[11]%s Settings / Config\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
     printf '  %s[5]%s  Desktop             %s[12]%s Update\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
     printf '  %s[6]%s  SSH                 %s[13]%s Uninstall\n' "$C_CYAN" "$C_RESET" "$C_RED" "$C_RESET"
-    printf '  %s[7]%s  Backup              %s[Q]%s  Quit\n\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '  %s[7]%s  Backup              %s[N]%s  Network / IP Info\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET"
+    printf '                           %s[Q]%s  Quit\n\n' "$C_BOLD" "$C_RESET"
     hr
     printf '\n'
     local c
@@ -330,6 +331,7 @@ main_menu() {
       11) cmd_config ;;
       12) update_run || true ;;
       13) uninstall_run || true ;;
+      n|N|14|ip|IP|net|network) net_status_print ;;
       q|Q|"") printf 'Bye.\n'; break ;;
       *) log_warn "Invalid choice" ;;
     esac
@@ -417,7 +419,7 @@ main() {
     update) update_run ;;
     backup) detect_all; backup_create ;;
     restore) restore_from "${ARGS[0]:-}" ;;
-    network) net_status_print ;;
+    network|ip) net_status_print ;;
     ssh) detect_all
          case "${ARGS[0]:-}" in
            install) ssh_install "${SSH_PORT:-2222}" ;;
