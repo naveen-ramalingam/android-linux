@@ -160,9 +160,17 @@ configure_rootfs_environment() {
   if [ -d "$rootfs/etc/apt" ] || [ -f "$rootfs/usr/bin/apt-get" ] || [ -f "$rootfs/usr/bin/apt" ]; then
     write_rootfs_file "$rootfs/etc/apt/apt.conf.d/99android" 'APT::Sandbox::User "root";' || true
     if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
-      run_as_root mkdir -p "$rootfs/etc/apt/sources.list.d" "$rootfs/etc/apt/preferences.d" 2>/dev/null || true
+      run_as_root mkdir -p \
+        "$rootfs/etc/apt/sources.list.d" \
+        "$rootfs/etc/apt/preferences.d" \
+        "$rootfs/etc/apt/trusted.gpg.d" \
+        "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
     else
-      mkdir -p "$rootfs/etc/apt/sources.list.d" "$rootfs/etc/apt/preferences.d" 2>/dev/null || true
+      mkdir -p \
+        "$rootfs/etc/apt/sources.list.d" \
+        "$rootfs/etc/apt/preferences.d" \
+        "$rootfs/etc/apt/trusted.gpg.d" \
+        "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
     fi
 
     local has_sources=0

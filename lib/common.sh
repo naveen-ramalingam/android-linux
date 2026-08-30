@@ -305,19 +305,29 @@ banner() {
 
 # write_rootfs_file: write string content directly to a file inside the rootfs
 # without creating temporary files on host (avoids permission issues under su).
+#
+# Strategy for chroot+root mode (rootfs is root-owned):
+#   1. Try tee via run_as_root (avoids shell-redirect ownership problem).
+#   2. Try base64-decode pipeline via run_as_root sh -c (handles all content).
+#   3. Fall back to run_as_root sh -c printf redirect (last resort).
+# For proot / non-root mode the current user owns the rootfs, so a plain
+# redirect works fine.
 write_rootfs_file() {
   local target="$1" content="$2"
   local dir; dir=$(dirname "$target")
   if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
-    if printf '%s\n' "$content" > "$target" 2>/dev/null; then
+    # Method 1: tee — run_as_root owns the write, no redirect ownership issue.
+    if printf '%s\n' "$content" | run_as_root tee "$target" >/dev/null 2>/dev/null; then
       return 0
     fi
+    # Method 2: base64 pipeline inside a root shell.
     local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
     if [ -n "$b64" ]; then
       if run_as_root sh -c "echo '$b64' | base64 -d > '$target'" 2>/dev/null; then return 0; fi
       if run_as_root sh -c "echo '$b64' | base64 -D > '$target'" 2>/dev/null; then return 0; fi
     fi
+    # Method 3: printf inside a root shell.
     local qcontent; qcontent=$(shell_quote "$content")
     run_as_root sh -c "printf '%s\n' $qcontent > '$target'" 2>/dev/null || return 1
   else
