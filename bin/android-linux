@@ -462,14 +462,20 @@ main() {
     network|ip) net_status_print ;;
     ssh) detect_all
          case "${ARGS[0]:-}" in
-           install) ssh_install "${SSH_PORT:-2222}" ;;
-           start) ssh_start ;; stop) ssh_stop ;; status) ssh_status ;;
+           install) ssh_install "${SSH_PORT:-2222}" "${ARGS[1]:-${LINUX_USER:-android}}" ;;
+           start) ssh_start "${SSH_PORT:-2222}" "${LINUX_USER:-android}" ;;
+           stop) ssh_stop ;;
+           status) ssh_status ;;
+           "") if is_interactive; then menu_ssh; else printf 'Usage: android-linux ssh {install|start|stop|status}\n'; fi ;;
            *) printf 'Usage: android-linux ssh {install|start|stop|status}\n' ;;
          esac ;;
     desktop) detect_all
          case "${ARGS[0]:-}" in
            install) desktop_install "${DESKTOP:-xfce}" ;;
-           start) desktop_start ;; stop) desktop_stop ;; status) desktop_status ;;
+           start) desktop_start ;;
+           stop) desktop_stop ;;
+           status) desktop_status ;;
+           "") if is_interactive; then menu_desktop; else printf 'Usage: android-linux desktop {install|start|stop|status}\n'; fi ;;
            *) printf 'Usage: android-linux desktop {install|start|stop|status}\n' ;;
          esac ;;
     doctor) doctor_run ;;

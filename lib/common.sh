@@ -307,33 +307,40 @@ banner() {
 # without creating temporary files on host (avoids permission issues under su).
 #
 # Strategy:
-#   1. Write to a host-side temp file (Termux user owns LINUX_BASE).
-#      Then try direct write first; if that fails (permission denied because
-#      the rootfs is root-owned), use run_as_root cp.
-#   2. base64 round-trip entirely inside a root sh -c (su-safe, no stdin).
-#   3. shell_quote + printf inside a root shell (last resort).
+#   1. Ensure parent directory exists and is writable.
+#   2. Remove destination first if read-only, then copy with overwrite (cp -f).
+#   3. If root available, use run_as_root cp -f or base64 stream.
+#   4. If proot mode, write via proot environment with emulated root privileges.
 write_rootfs_file() {
   local target="$1" content="$2"
   local dir; dir=$(dirname "$target")
   local tmpdir="${LINUX_BASE:-${ANDROID_LINUX_HOME}}"
   local tmp="${tmpdir}/.wrf_tmp_$$"
 
-  # Always ensure the directory exists (try both with and without root).
+  # Always ensure parent directory exists and is writable
   mkdir -p "$dir" 2>/dev/null || true
+  chmod u+w "$dir" 2>/dev/null || true
   if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
+    run_as_root chmod u+w "$dir" 2>/dev/null || true
   fi
 
-  # Method 1: temp file on host (non-root write), then cp.
+  # Remove destination first if it exists as read-only or dangling link
+  rm -f "$target" 2>/dev/null || true
+  if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root rm -f "$target" 2>/dev/null || true
+  fi
+
+  # Method 1: temp file on host, then cp -f
   if printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
-    # Try direct write first (works in proot / when user already owns the file).
-    if cp "$tmp" "$target" 2>/dev/null; then
+    chmod 644 "$tmp" 2>/dev/null || true
+    if cp -f "$tmp" "$target" 2>/dev/null; then
       rm -f "$tmp" 2>/dev/null || true
       return 0
     fi
     # Escalate to root cp if direct write failed.
     if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
-      if run_as_root cp "$tmp" "$target" 2>/dev/null; then
+      if run_as_root cp -f "$tmp" "$target" 2>/dev/null; then
         rm -f "$tmp" 2>/dev/null || true
         return 0
       fi
@@ -341,20 +348,33 @@ write_rootfs_file() {
     rm -f "$tmp" 2>/dev/null || true
   fi
 
-  # Method 2: base64 round-trip inside a root shell (su doesn't inherit stdin).
+  # Method 2: base64 round-trip inside root shell
   if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
     if [ -n "$b64" ]; then
       if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -d > \"$target\"" 2>/dev/null; then return 0; fi
       if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -D > \"$target\"" 2>/dev/null; then return 0; fi
     fi
-    # Method 3: shell_quote + printf inside a root shell.
     local qcontent; qcontent=$(shell_quote "$content")
     run_as_root sh -c "printf '%s\n' $qcontent > \"$target\"" 2>/dev/null && return 0
   fi
 
-  # Final fallback: direct write (may fail if root-owned, but best effort).
-  printf '%s\n' "$content" > "$target" 2>/dev/null || return 1
+  # Method 3: inside PRoot (when non-root / proot mode)
+  if [ "${INSTALL_MODE:-proot}" = "proot" ] && command -v proot >/dev/null 2>&1 && [ -d "${LINUX_ROOT:-}" ]; then
+    local rel="${target#"${LINUX_ROOT}"}"
+    if [ "$rel" != "$target" ] && [ -n "$rel" ]; then
+      local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
+      if [ -n "$b64" ]; then
+        proot_enter "$LINUX_ROOT" "sh -c 'mkdir -p \"$(dirname "$rel")\" 2>/dev/null; printf \"%s\n\" \"$b64\" | base64 -d > \"$rel\" 2>/dev/null'" 2>/dev/null && return 0
+      fi
+    fi
+  fi
+
+  # Final fallback: chmod parent and file, then direct write
+  chmod u+w "$target" 2>/dev/null || true
+  { printf '%s\n' "$content" > "$target"; } 2>/dev/null && return 0
+
+  return 1
 }
 
 # --- Path safety ------------------------------------------------------------
