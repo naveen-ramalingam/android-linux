@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs and local state
+*.log
+logs/
+
+# Local backups (large)
+backups/
+*.tar.gz
+*.tar.zst
+*.tar.xz
+
+# Temporary files
+*.tmp
+tmp/
+
+# Local config overrides (never commit personal paths)
+local.conf

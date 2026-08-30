@@ -1,0 +1,416 @@
+#!/usr/bin/env bash
+# android-linux - Universal Linux-on-Android manager CLI.
+# Run with no arguments for the interactive menu, or use subcommands.
+#
+# This is the single entry point users invoke. It locates the library
+# directory, loads all modules, then dispatches.
+
+# Note: `set -e` is intentionally omitted for the interactive CLI. Menus rely
+# on functions returning nonzero as normal flow control; hard aborts would kill
+# the session. Undefined-variable and pipeline checks still apply.
+set -uo pipefail
+
+# --- Locate installation ----------------------------------------------------
+_self="${BASH_SOURCE[0]}"
+# Resolve symlinks so the CLI works when linked into $PREFIX/bin.
+while [ -h "$_self" ]; do
+  _dir=$(cd -P "$(dirname "$_self")" && pwd)
+  _self=$(readlink "$_self")
+  case "$_self" in /*) : ;; *) _self="$_dir/$_self" ;; esac
+done
+BIN_DIR=$(cd -P "$(dirname "$_self")" && pwd)
+APP_HOME=$(cd -P "$BIN_DIR/.." && pwd)
+LIB_DIR="$APP_HOME/lib"
+export APP_HOME
+
+# --- Load libraries ---------------------------------------------------------
+# common.sh must load first (defines helpers used by all others).
+# shellcheck source=../lib/common.sh
+. "$LIB_DIR/common.sh"
+require_bash
+
+for _m in architecture root storage network detect filesystem \
+          distro debian ubuntu alpine archarm \
+          chroot proot lifecycle \
+          ssh desktop backup restore doctor update uninstall; do
+  # shellcheck disable=SC1090
+  . "$LIB_DIR/${_m}.sh"
+done
+# shellcheck disable=SC1090
+. "$APP_HOME/profiles/generic.sh"
+
+# Log nonzero exits for debugging. (No ERR trap: interactive menus rely on
+# functions returning nonzero as normal flow control.)
+_on_exit() { local rc=$?; [ "$rc" -ne 0 ] && log_debug "exiting with code $rc"; }
+trap '_on_exit' EXIT
+
+# --- Argument parsing -------------------------------------------------------
+OPT_DISTRO=""
+OPT_PATH=""
+OPT_MODE=""
+
+usage() {
+  cat <<EOF
+${ANDROID_LINUX_NAME} ${ANDROID_LINUX_VERSION} - run Linux on Android (root or non-root)
+
+Usage: android-linux [command] [options]
+
+Commands:
+  install         Install a Linux distribution (interactive by default)
+  uninstall       Remove the AndroidLinux installation (rootfs only)
+  start           Start the Linux environment (mount/prepare)
+  stop            Stop the Linux environment (unmount/cleanup)
+  restart         Restart the Linux environment
+  shell           Enter an interactive Linux shell
+  status          Show installation and runtime status
+  info            Show device and capability detection
+  update          Update AndroidLinux scripts (keeps your rootfs)
+  backup          Create a backup of the rootfs + config
+  restore <file>  Restore from a backup archive
+  network         Show network status
+  ssh <sub>       Manage SSH server (install|start|stop)
+  desktop <sub>   Manage desktop/VNC (install|start|stop|status)
+  doctor          Run diagnostics with suggested fixes
+  logs            Show recent log output
+  config          Show current configuration
+
+Options:
+  --help          Show this help
+  --version       Show version
+  --debug         Verbose debug logging
+  --non-interactive  Never prompt; use defaults
+  --dry-run       Show actions without downloading/mounting/deleting
+  --yes           Assume "yes" to confirmations
+  --root          Force rooted chroot mode
+  --proot         Force PRoot mode
+  --distro <name> debian | debian-stable | ubuntu | alpine | archarm
+  --path <dir>    Installation base directory
+
+One-command install (replace naveen-ramalingam after forking):
+  bash <(curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh)
+EOF
+}
+
+parse_global_opts() {
+  ARGS=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --help|-h) usage; exit 0 ;;
+      --version|-V) printf '%s %s\n' "$ANDROID_LINUX_NAME" "$ANDROID_LINUX_VERSION"; exit 0 ;;
+      --debug) ANDROID_LINUX_DEBUG=1 ;;
+      --non-interactive) ANDROID_LINUX_NONINTERACTIVE=1 ;;
+      --dry-run) ANDROID_LINUX_DRY_RUN=1 ;;
+      --yes|-y) ANDROID_LINUX_ASSUME_YES=1 ;;
+      --root) OPT_MODE="chroot" ;;
+      --proot) OPT_MODE="proot" ;;
+      --distro) shift; OPT_DISTRO="${1:-}" ;;
+      --distro=*) OPT_DISTRO="${1#*=}" ;;
+      --path) shift; OPT_PATH="${1:-}" ;;
+      --path=*) OPT_PATH="${1#*=}" ;;
+      --) shift; while [ "$#" -gt 0 ]; do ARGS+=("$1"); shift; done; break ;;
+      -*) log_warn "Unknown option: $1" ;;
+      *) ARGS+=("$1") ;;
+    esac
+    shift
+  done
+  export ANDROID_LINUX_DEBUG ANDROID_LINUX_NONINTERACTIVE ANDROID_LINUX_DRY_RUN ANDROID_LINUX_ASSUME_YES
+}
+
+# --- Setup base + config ----------------------------------------------------
+init_runtime() {
+  config_load
+  # Resolve base: CLI flag > config > env default.
+  if [ -n "$OPT_PATH" ]; then LINUX_BASE="$OPT_PATH"; fi
+  if [ -z "${LINUX_BASE:-}" ]; then
+    detect_termux; detect_root
+    LINUX_BASE=$(fs_default_base)
+  fi
+  : "${LINUX_ROOT:=$LINUX_BASE/rootfs}"
+  : "${BACKUP_DIR:=$LINUX_BASE/backups}"
+  [ -n "$OPT_DISTRO" ] && DISTRO="$OPT_DISTRO"
+  : "${DISTRO:=debian}"
+  [ -n "$OPT_MODE" ] && INSTALL_MODE="$OPT_MODE"
+  export LINUX_BASE LINUX_ROOT BACKUP_DIR DISTRO INSTALL_MODE
+}
+
+is_installed() { [ -d "${LINUX_ROOT:-/nonexistent}" ] && { [ -e "$LINUX_ROOT/bin/sh" ] || [ -e "$LINUX_ROOT/bin/busybox" ]; }; }
+
+# --- First-run wizard -------------------------------------------------------
+wizard_install() {
+  if ! is_interactive && [ "${ANDROID_LINUX_ASSUME_YES:-0}" != "1" ] && [ "${ANDROID_LINUX_DRY_RUN:-0}" != "1" ]; then
+    error_report "Interactive terminal required for first-time setup" \
+      "stdin/stdout is not a TTY and --yes was not given." \
+      "Run 'android-linux install' inside Termux, or add --yes --non-interactive."
+    return 1
+  fi
+
+  detect_all
+  profile_load
+
+  # Step: welcome + license
+  banner
+  printf '\nWelcome to %s %s\n' "$ANDROID_LINUX_NAME" "$ANDROID_LINUX_VERSION"
+  printf 'This installs Linux INSIDE Android storage. It does NOT replace Android,\n'
+  printf 'flash partitions, or modify the system. Everything is reversible.\n\n'
+  print_detection
+
+  if ! arch_is_supported; then
+    die "Architecture '$ARCH_RAW' is not supported."
+  fi
+
+  # Step: choose mode
+  local mode="${INSTALL_MODE:-$RECOMMENDED_MODE}"
+  if is_interactive && [ -z "${OPT_MODE:-}" ]; then
+    printf '\nSelect installation mode:\n'
+    printf '  [1] Rooted chroot   %s\n' "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo '(recommended)' || echo '(needs root)')"
+    printf '  [2] PRoot           (no root required)\n'
+    printf '  [3] Termux Linux    (lightweight)\n'
+    local c; c=$(ask "Choose" "$(mode_choice_default)")
+    case "$c" in
+      1) mode="chroot" ;; 2) mode="proot" ;; 3) mode="termux" ;;
+      *) mode="$RECOMMENDED_MODE" ;;
+    esac
+  fi
+  if [ "$mode" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" != 1 ]; then
+    log_warn "chroot needs root; falling back to PRoot."
+    mode="proot"
+  fi
+  INSTALL_MODE="$mode"; export INSTALL_MODE
+
+  # Step: choose distro
+  if is_interactive && [ -z "$OPT_DISTRO" ]; then
+    printf '\nChoose Linux distribution:\n'
+    printf '  [1] Debian 13     (recommended)\n'
+    printf '  [2] Debian 12 (stable)\n'
+    printf '  [3] Ubuntu 24.04\n'
+    printf '  [4] Alpine Linux  (smallest)\n'
+    printf '  [5] Arch Linux ARM (advanced)\n'
+    local d; d=$(ask "Select" "1")
+    case "$d" in
+      1) DISTRO="debian" ;; 2) DISTRO="debian-stable" ;; 3) DISTRO="ubuntu" ;;
+      4) DISTRO="alpine" ;; 5) DISTRO="archarm" ;; *) DISTRO="debian" ;;
+    esac
+  fi
+  distro_resolve "$DISTRO" || return 1
+
+  # Step: choose location
+  if is_interactive && [ -z "$OPT_PATH" ]; then
+    local defbase; defbase=$(fs_default_base)
+    LINUX_BASE=$(ask "Installation directory" "$defbase")
+  fi
+  LINUX_ROOT="$LINUX_BASE/rootfs"
+  BACKUP_DIR="$LINUX_BASE/backups"
+  fs_validate_install_base "$LINUX_BASE" || return 1
+
+  # Step: desktop + ssh choices
+  local rec_de; rec_de=$(recommend_desktop)
+  DESKTOP="none"
+  if is_interactive; then
+    printf '\nDesktop environment (RAM %s GB, recommended: %s):\n' "$(mem_gb)" "$rec_de"
+    printf '  [1] None (headless)\n  [2] XFCE\n  [3] LXQt\n'
+    local de; de=$(ask "Select" "1")
+    case "$de" in 2) DESKTOP="xfce" ;; 3) DESKTOP="lxqt" ;; *) DESKTOP="none" ;; esac
+  fi
+  local want_ssh=0
+  if is_interactive; then
+    confirm "Install SSH server?" N && want_ssh=1
+  fi
+
+  # Step: summary + space check
+  local need; need=$(fs_estimate_bytes "$DISTRO" "$DESKTOP")
+  detect_storage "$(dirname "$LINUX_BASE")"
+  printf '\n'; hr
+  printf 'Summary:\n'
+  printf '  Distro:   %s\n' "$DISTRO_DISPLAY"
+  printf '  Mode:     %s\n' "$(mode_label "$INSTALL_MODE")"
+  printf '  Location: %s\n' "$LINUX_BASE"
+  printf '  Desktop:  %s\n' "$DESKTOP"
+  printf '  SSH:      %s\n' "$([ "$want_ssh" = 1 ] && echo yes || echo no)"
+  printf '  Required: ~%s\n' "$(human_bytes "$need")"
+  printf '  Available:%s\n' " $(human_bytes "${STORAGE_AVAIL_BYTES:-0}")"
+  hr
+  if ! check_space "$need" "$(dirname "$LINUX_BASE")"; then
+    log_warn "Available space may be insufficient for the selected options."
+  fi
+  confirm "Proceed with installation?" Y || { log_info "Installation cancelled."; return 0; }
+
+  config_set LINUX_BASE "$LINUX_BASE"; config_set LINUX_ROOT "$LINUX_ROOT"
+  config_set DISTRO "$DISTRO"; config_set INSTALL_MODE "$INSTALL_MODE"
+  config_set DESKTOP "$DESKTOP"; config_set BACKUP_DIR "$BACKUP_DIR"
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" != "1" ]; then config_save; fi
+
+  # Step: perform install
+  do_install || return 1
+
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" != "1" ]; then
+    [ "$want_ssh" = 1 ] && ssh_install "${SSH_PORT:-2222}"
+    [ "$DESKTOP" != "none" ] && desktop_install "$DESKTOP"
+  else
+    log_info "[dry-run] would configure SSH/desktop if selected"
+  fi
+
+  printf '\n'
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
+    log_ok "Dry run complete. Nothing was downloaded, mounted, or modified."
+  else
+    log_ok "Installation complete!"
+    printf 'Enter your Linux with:  android-linux shell\n'
+  fi
+}
+
+mode_choice_default() {
+  case "$RECOMMENDED_MODE" in chroot) echo 1 ;; proot) echo 2 ;; termux) echo 3 ;; *) echo 2 ;; esac
+}
+
+do_install() {
+  fs_init_layout "$LINUX_BASE" || return 1
+  state_set DETECTED
+  distro_resolve "$DISTRO" || return 1
+  log_info "Preparing $DISTRO_DISPLAY ($(arch_label)) in $(mode_label "$INSTALL_MODE") mode"
+  distro_download || return 1
+  distro_verify || return 1
+  distro_extract || return 1
+  configure_rootfs_dns "$LINUX_ROOT" "${DNS:-1.1.1.1}"
+  state_set READY
+  log_ok "$DISTRO_DISPLAY is ready at $LINUX_ROOT"
+}
+
+# --- Interactive main menu --------------------------------------------------
+main_menu() {
+  if ! is_interactive; then
+    usage; return 0
+  fi
+  while true; do
+    clear 2>/dev/null || true
+    detect_device; detect_android; detect_architecture; detect_root; detect_kernel
+    printf '%s\n' "+======================================+"
+    printf '|          %sAndroidLinux%s                |\n' "$C_BOLD" "$C_RESET"
+    printf '%s\n\n' "+======================================+"
+    printf 'Device: %s %s\n' "$DEV_MANUFACTURER" "$DEV_MODEL"
+    printf 'Android: %s   Arch: %s\n' "$ANDROID_RELEASE" "$(arch_label)"
+    printf 'Root: %s   Kernel: %s\n' "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo YES || echo NO)" "$KERNEL_VERSION"
+    printf 'Linux: %s   Status: %s\n\n' "${DISTRO:-none}" "$(is_installed && echo Installed || echo 'Not installed')"
+    printf '  [1] Enter Linux         [8] Restore\n'
+    printf '  [2] Start Linux         [9] System information\n'
+    printf '  [3] Stop Linux          [10] Doctor / Repair\n'
+    printf '  [4] Install Linux       [11] Settings / Config\n'
+    printf '  [5] Desktop             [12] Update\n'
+    printf '  [6] SSH                 [13] Uninstall\n'
+    printf '  [7] Backup              [Q] Quit\n\n'
+    local c; c=$(ask "Choose" "")
+    case "$c" in
+      1) linux_enter || true ;;
+      2) linux_start && log_ok "Started" || true ;;
+      3) linux_stop || true ;;
+      4) wizard_install || true ;;
+      5) menu_desktop ;;
+      6) menu_ssh ;;
+      7) backup_create || true ;;
+      8) local f; f=$(ask "Path to backup archive" ""); [ -n "$f" ] && restore_from "$f" ;;
+      9) detect_all; print_detection; print_capabilities ;;
+      10) doctor_run || true ;;
+      11) cmd_config ;;
+      12) update_run || true ;;
+      13) uninstall_run || true ;;
+      q|Q|"") printf 'Bye.\n'; break ;;
+      *) log_warn "Invalid choice" ;;
+    esac
+    is_interactive && { printf '\nPress Enter to continue...'; read -r _ || true; }
+  done
+}
+
+menu_desktop() {
+  printf '  [1] Install  [2] Start  [3] Stop  [4] Status\n'
+  local c; c=$(ask "Desktop" "")
+  case "$c" in
+    1) desktop_install "${DESKTOP:-xfce}" ;;
+    2) desktop_start ;; 3) desktop_stop ;; 4) desktop_status ;;
+  esac
+}
+
+menu_ssh() {
+  printf '  [1] Install  [2] Start  [3] Stop\n'
+  local c; c=$(ask "SSH" "")
+  case "$c" in
+    1) ssh_install "${SSH_PORT:-2222}" ;;
+    2) ssh_start ;; 3) ssh_stop ;;
+  esac
+}
+
+print_capabilities() {
+  printf '\nCapabilities:\n'
+  printf '  tar:%s xz:%s zstd:%s gzip:%s\n' "$(yn "$CAP_TAR")" "$(yn "$CAP_XZ")" "$(yn "$CAP_ZSTD")" "$(yn "$CAP_GZIP")"
+  printf '  curl:%s wget:%s aria2:%s\n' "$(yn "$CAP_CURL")" "$(yn "$CAP_WGET")" "$(yn "$CAP_ARIA2")"
+  printf '  proot:%s chroot:%s unshare:%s mount:%s\n' "$(yn "$CAP_PROOT")" "$(yn "$CAP_CHROOT")" "$(yn "$CAP_UNSHARE")" "$(yn "$CAP_MOUNT")"
+  printf '  busybox:%s toybox:%s coreutils:%s\n' "$(yn "$CAP_BUSYBOX")" "$(yn "$CAP_TOOLBOX")" "$(yn "$CAP_COREUTILS")"
+}
+yn() { [ "${1:-0}" = 1 ] && printf 'yes' || printf 'no'; }
+
+# --- Subcommand handlers ----------------------------------------------------
+cmd_status() {
+  detect_all
+  print_detection
+  printf 'Installed:   %s\n' "$(is_installed && echo yes || echo no)"
+  printf 'Mode:        %s\n' "${INSTALL_MODE:-<unset>}"
+  printf 'Rootfs:      %s\n' "$LINUX_ROOT"
+  printf 'Runtime:     %s\n' "$(linux_status 2>/dev/null || echo unknown)"
+  printf 'State:       %s\n' "$(state_get)"
+}
+
+cmd_config() {
+  printf 'Configuration (%s):\n' "$ANDROID_LINUX_CONFIG_FILE"
+  local k
+  for k in $AL_CONFIG_KEYS; do printf '  %-14s %s\n' "$k" "${!k:-}"; done
+}
+
+cmd_logs() {
+  if [ -f "$ANDROID_LINUX_LOG_FILE" ]; then
+    tail -n 100 "$ANDROID_LINUX_LOG_FILE"
+  else
+    log_info "No log file yet at $ANDROID_LINUX_LOG_FILE"
+  fi
+}
+
+# --- Dispatch ---------------------------------------------------------------
+main() {
+  parse_global_opts "$@"
+  init_runtime
+
+  local cmd="${ARGS[0]:-}"
+  [ "${#ARGS[@]}" -gt 0 ] && ARGS=("${ARGS[@]:1}")
+
+  case "$cmd" in
+    "") main_menu ;;
+    install) distro_resolve "$DISTRO" >/dev/null 2>&1 || true; wizard_install ;;
+    uninstall) uninstall_run ;;
+    start) detect_all; linux_start ;;
+    stop) detect_all; linux_stop ;;
+    restart) detect_all; linux_restart ;;
+    shell|enter) detect_all; linux_enter ;;
+    status) cmd_status ;;
+    info) detect_all; print_detection; print_capabilities ;;
+    update) update_run ;;
+    backup) detect_all; backup_create ;;
+    restore) restore_from "${ARGS[0]:-}" ;;
+    network) net_status_print ;;
+    ssh) detect_all
+         case "${ARGS[0]:-}" in
+           install) ssh_install "${SSH_PORT:-2222}" ;;
+           start) ssh_start ;; stop) ssh_stop ;;
+           *) printf 'Usage: android-linux ssh {install|start|stop}\n' ;;
+         esac ;;
+    desktop) detect_all
+         case "${ARGS[0]:-}" in
+           install) desktop_install "${DESKTOP:-xfce}" ;;
+           start) desktop_start ;; stop) desktop_stop ;; status) desktop_status ;;
+           *) printf 'Usage: android-linux desktop {install|start|stop|status}\n' ;;
+         esac ;;
+    doctor) doctor_run ;;
+    logs) cmd_logs ;;
+    config) cmd_config ;;
+    help) usage ;;
+    *) log_error "Unknown command: $cmd"; usage; exit 2 ;;
+  esac
+}
+
+main "$@"

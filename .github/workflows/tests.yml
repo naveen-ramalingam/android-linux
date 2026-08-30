@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run test suite
+        run: bash tests/run-all.sh
+      - name: Smoke test CLI
+        run: |
+          ./bin/android-linux --version
+          ./bin/android-linux --help >/dev/null
+          ./bin/android-linux info >/dev/null
+          ANDROID_LINUX_HOME=$RUNNER_TEMP/al \
+          ANDROID_LINUX_CONFIG_DIR=$RUNNER_TEMP/alcfg \
+            ./bin/android-linux install --dry-run --non-interactive --yes \
+              --distro alpine --path "$RUNNER_TEMP/base"

@@ -1,0 +1,49 @@
+name: Device support report
+description: Report that AndroidLinux works (or fails) on a specific device
+labels: ["device"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      placeholder: e.g. OnePlus 9 (lemonades)
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version / ROM
+      placeholder: e.g. Android 14 / OxygenOS
+    validations:
+      required: true
+  - type: dropdown
+    id: root
+    attributes:
+      label: Root status
+      options:
+        - Rooted
+        - Not rooted
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works fully
+        - Works with issues
+        - Fails
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `android-linux info`
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Any quirks, workarounds, or doctor output.

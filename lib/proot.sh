@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# proot.sh - Non-root (PRoot) lifecycle. Emulates chroot in userspace, no root
+# required. Works inside Termux and ordinary Android shells. Source after
+# common.sh, network.sh.
+
+# proot_available: true if the proot binary exists.
+proot_available() { have_cmd proot; }
+
+# proot_enter: run an interactive shell (or command) inside the rootfs via proot.
+# Usage: proot_enter [rootfs] [command...]
+proot_enter() {
+  local rootfs="${1:-$LINUX_ROOT}"; shift 2>/dev/null || true
+  [ -d "$rootfs" ] || { log_error "rootfs missing: $rootfs"; return 1; }
+  if ! proot_available; then
+    error_report "proot is not installed" \
+      "The PRoot binary was not found in PATH." \
+      "Inside Termux run: pkg install proot"
+    return 1
+  fi
+  configure_rootfs_dns "$rootfs" "${DNS:-1.1.1.1}"
+
+  # Standard proot bindings expose Android kernel fs read-only-ish to the guest.
+  local binds=(
+    --bind=/dev
+    --bind=/proc
+    --bind=/sys
+    --bind=/dev/urandom:/dev/random
+  )
+  [ -e /sdcard ] && binds+=(--bind=/sdcard)
+  [ -e /storage ] && binds+=(--bind=/storage)
+
+  local shell="/bin/bash"
+  [ -x "$rootfs/bin/bash" ] || shell="/bin/sh"
+
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
+    log_info "[dry-run] would launch proot into $rootfs"
+    return 0
+  fi
+
+  state_set READY
+  log_info "Entering ${DISTRO_DISPLAY:-Linux} (proot). Type 'exit' to leave."
+  # shellcheck disable=SC2016
+  local cmd='HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=${TERM:-xterm} '
+  if [ "$#" -gt 0 ]; then
+    proot --kill-on-exit --root-id --cwd=/root \
+      "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "$cmd exec $*"
+  else
+    proot --kill-on-exit --root-id --cwd=/root \
+      "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "${cmd} exec $shell -l"
+  fi
+}
+
+# proot mode has no persistent mounts; start/stop are no-ops for symmetry.
+proot_start() { log_debug "proot: no persistent mounts to start"; state_set READY; return 0; }
+proot_stop()  { log_debug "proot: nothing to unmount"; return 0; }
+proot_status() { printf 'on-demand'; }

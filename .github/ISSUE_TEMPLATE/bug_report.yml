@@ -1,0 +1,61 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include the output of `android-linux info`
+        and `android-linux doctor` if possible.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Device information
+      description: Paste the output of `android-linux info` and `android-linux doctor`.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      placeholder: e.g. Samsung SM-G935F, Pixel 7
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: e.g. 13 (LineageOS 20)
+  - type: dropdown
+    id: root
+    attributes:
+      label: Root status
+      options:
+        - Rooted (Magisk)
+        - Rooted (KernelSU)
+        - Rooted (APatch)
+        - Rooted (other)
+        - Not rooted
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Installation mode
+      options:
+        - chroot
+        - proot
+        - termux
+        - Not sure
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste output of `android-linux logs` or run with `--debug`.
+      render: shell
