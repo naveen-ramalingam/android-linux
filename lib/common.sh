@@ -68,16 +68,14 @@ _al_ensure_logdir() {
 
 _al_log_to_file() {
   # $1=level $2=message
-  _al_ensure_logdir
-  [ -d "$ANDROID_LINUX_LOG_DIR" ] || return 0
-  # Prevent infinite loops if logging itself fails - just bail out silently
-  if [ -n "${_AL_LOGGING_IN_PROGRESS:-}" ]; then
-    return 0
-  fi
+  [ -n "${_AL_LOGGING_IN_PROGRESS:-}" ] && return 0
   _AL_LOGGING_IN_PROGRESS=1
-  printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '?')" "$1" "$2" \
-    >>"$ANDROID_LINUX_LOG_FILE" 2>/dev/null || true
-  unset _AL_LOGGING_IN_PROGRESS
+  _al_ensure_logdir
+  if [ -d "$ANDROID_LINUX_LOG_DIR" ]; then
+    printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '?')" "$1" "$2" \
+      >>"$ANDROID_LINUX_LOG_FILE" 2>/dev/null || true
+  fi
+  _AL_LOGGING_IN_PROGRESS=""
 }
 
 log_info()  { printf '%s[*]%s %s\n' "$C_CYAN" "$C_RESET" "$*"; _al_log_to_file INFO  "$*"; }
@@ -252,7 +250,10 @@ confirm() {
   local hint="[Y/n]"
   [ "$def" = "N" ] && hint="[y/N]"
   printf '%s %s ' "$prompt" "$hint" >&2
-  IFS= read -r reply || reply=""
+  if ! IFS= read -r reply; then
+    reply=""
+    [ "$def" = "Y" ] && return 0 || return 1
+  fi
   reply=${reply:-$def}
   case "$reply" in
     y|Y|yes|YES) return 0 ;;
@@ -269,7 +270,10 @@ ask() {
   else
     printf '%s: ' "$prompt" >&2
   fi
-  IFS= read -r reply || reply=""
+  if ! IFS= read -r reply; then
+    printf '%s' "$def"
+    return 1
+  fi
   printf '%s' "${reply:-$def}"
 }
 

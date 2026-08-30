@@ -12,8 +12,11 @@ set -uo pipefail
 
 # --- Locate installation ----------------------------------------------------
 _self="${BASH_SOURCE[0]}"
-# Resolve symlinks so the CLI works when linked into $PREFIX/bin.
+# Resolve symlinks safely with a loop cap so circular links never hang.
+_sym_depth=0
 while [ -h "$_self" ]; do
+  _sym_depth=$((_sym_depth + 1))
+  [ "$_sym_depth" -gt 25 ] && break
   _dir=$(cd -P "$(dirname "$_self")" && pwd)
   _self=$(readlink "$_self")
   case "$_self" in /*) : ;; *) _self="$_dir/$_self" ;; esac
@@ -309,7 +312,10 @@ main_menu() {
     printf '  %s[7]%s  Backup              %s[Q]%s  Quit\n\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET"
     hr
     printf '\n'
-    local c; c=$(ask "Choose an option" "")
+    local c
+    if ! c=$(ask "Choose an option" ""); then
+      printf 'Bye.\n'; break
+    fi
     case "$c" in
       1) linux_enter || true ;;
       2) if linux_start; then log_ok "Started"; fi ;;
@@ -327,7 +333,12 @@ main_menu() {
       q|Q|"") printf 'Bye.\n'; break ;;
       *) log_warn "Invalid choice" ;;
     esac
-    is_interactive && { printf '\nPress Enter to continue...'; read -r _ || true; }
+    if is_interactive; then
+      printf '\nPress Enter to continue...'
+      read -r _ || break
+    else
+      break
+    fi
   done
 }
 
