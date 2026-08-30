@@ -303,6 +303,21 @@ banner() {
   printf '%s\n' "${C_RESET}"
 }
 
+# write_rootfs_file: write string content directly to a file inside the rootfs
+# without creating temporary files on host (avoids permission issues under su).
+write_rootfs_file() {
+  local target="$1" content="$2"
+  local dir; dir=$(dirname "$target")
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root mkdir -p "$dir" 2>/dev/null || true
+    local b64; b64=$(printf '%s' "$content" | base64 | tr -d '\n')
+    run_as_root sh -c "printf '%s' '$b64' | base64 -d > '$target'" 2>/dev/null || return 1
+  else
+    mkdir -p "$dir" 2>/dev/null || true
+    printf '%s' "$content" > "$target" 2>/dev/null || return 1
+  fi
+}
+
 # --- Path safety ------------------------------------------------------------
 # Exact-match forbidden: the path itself must never be touched.
 # (/data children are allowed on purpose: Termux and $HOME live under /data,

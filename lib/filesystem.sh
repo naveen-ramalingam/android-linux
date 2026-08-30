@@ -51,6 +51,71 @@ fs_init_rootfs_tree() {
   for d in $FS_ROOTFS_DIRS; do
     mkdir -p "$rootfs/$d" 2>/dev/null || true
   done
+  fix_rootfs_symlinks "$rootfs"
+}
+
+# fix_rootfs_symlinks: repair essential symlinks and dynamic linker links in rootfs.
+fix_rootfs_symlinks() {
+  local rootfs="${1:-$LINUX_ROOT}"
+  [ -d "$rootfs" ] || return 0
+
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root mkdir -p "$rootfs/bin" "$rootfs/usr/bin" "$rootfs/lib" "$rootfs/usr/lib" "$rootfs/lib64" "$rootfs/etc" "$rootfs/tmp" 2>/dev/null || true
+    run_as_root chmod 755 "$rootfs" "$rootfs/bin" "$rootfs/usr/bin" "$rootfs/lib" "$rootfs/usr/lib" 2>/dev/null || true
+    run_as_root chmod 1777 "$rootfs/tmp" 2>/dev/null || true
+  else
+    mkdir -p "$rootfs/bin" "$rootfs/usr/bin" "$rootfs/lib" "$rootfs/usr/lib" "$rootfs/lib64" "$rootfs/etc" "$rootfs/tmp" 2>/dev/null || true
+    chmod 755 "$rootfs" "$rootfs/bin" "$rootfs/usr/bin" "$rootfs/lib" "$rootfs/usr/lib" 2>/dev/null || true
+    chmod 1777 "$rootfs/tmp" 2>/dev/null || true
+  fi
+
+  # 1. Ensure /bin/bash and /bin/sh exist
+  if [ -e "$rootfs/usr/bin/bash" ] && [ ! -e "$rootfs/bin/bash" ]; then
+    if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+      run_as_root ln -sf /usr/bin/bash "$rootfs/bin/bash" 2>/dev/null || true
+    else
+      ln -sf /usr/bin/bash "$rootfs/bin/bash" 2>/dev/null || true
+    fi
+  fi
+  if [ -e "$rootfs/usr/bin/sh" ] && [ ! -e "$rootfs/bin/sh" ]; then
+    if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+      run_as_root ln -sf /usr/bin/sh "$rootfs/bin/sh" 2>/dev/null || true
+    else
+      ln -sf /usr/bin/sh "$rootfs/bin/sh" 2>/dev/null || true
+    fi
+  elif [ -e "$rootfs/bin/bash" ] && [ ! -e "$rootfs/bin/sh" ]; then
+    if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+      run_as_root ln -sf /bin/bash "$rootfs/bin/sh" 2>/dev/null || true
+    else
+      ln -sf /bin/bash "$rootfs/bin/sh" 2>/dev/null || true
+    fi
+  fi
+
+  # 2. Dynamic linker symlinks (for ARM64/ARM32/x86/x86_64)
+  local ld ldname rel_target
+  for ld in $(find "$rootfs/usr/lib" "$rootfs/lib" -name 'ld-linux*' -o -name 'ld-musl*' 2>/dev/null | head -10); do
+    [ -e "$ld" ] || continue
+    ldname=$(basename "$ld")
+    rel_target="${ld#"$rootfs"}"
+    if [ ! -e "$rootfs/lib/$ldname" ]; then
+      if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+        run_as_root ln -sf "$rel_target" "$rootfs/lib/$ldname" 2>/dev/null || true
+      else
+        ln -sf "$rel_target" "$rootfs/lib/$ldname" 2>/dev/null || true
+      fi
+    fi
+    case "$ldname" in
+      *x86-64*|*aarch64*)
+        if [ ! -e "$rootfs/lib64/$ldname" ]; then
+          if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+            run_as_root ln -sf "$rel_target" "$rootfs/lib64/$ldname" 2>/dev/null || true
+          else
+            ln -sf "$rel_target" "$rootfs/lib64/$ldname" 2>/dev/null || true
+          fi
+        fi
+        ;;
+    esac
+  done
 }
 
 # fs_estimate_bytes: rough disk requirement for a distro + desktop combo.

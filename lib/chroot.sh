@@ -86,9 +86,14 @@ chroot_enter() {
   local rootfs="${1:-$LINUX_ROOT}"
   local user="${2:-root}"
   [ -d "$rootfs" ] || { log_error "rootfs missing: $rootfs"; return 1; }
+  fix_rootfs_symlinks "$rootfs"
   chroot_start "$rootfs" || return 1
-  local shell="/bin/bash"
-  [ -x "$rootfs/bin/bash" ] || shell="/bin/sh"
+  local shell="/bin/sh"
+  if [ -x "$rootfs/bin/bash" ]; then shell="/bin/bash"
+  elif [ -x "$rootfs/usr/bin/bash" ]; then shell="/bin/bash"
+  elif [ -x "$rootfs/bin/sh" ]; then shell="/bin/sh"
+  elif [ -x "$rootfs/usr/bin/sh" ]; then shell="/bin/sh"
+  fi
   log_info "Entering ${DISTRO_DISPLAY:-Linux} (chroot). Type 'exit' to leave."
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
     log_info "[dry-run] would chroot into $rootfs as $user"

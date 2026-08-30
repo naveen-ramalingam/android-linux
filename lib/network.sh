@@ -104,17 +104,9 @@ configure_rootfs_dns() {
     return 0
   fi
   
-  # Create /etc directory with appropriate permissions.
-  # In chroot mode, rootfs is owned by root, so use run_as_root.
-  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
-    run_as_root mkdir -p "$rootfs/etc" 2>/dev/null || true
-  else
-    mkdir -p "$rootfs/etc" 2>/dev/null || true
-  fi
-  
   # Debian/Ubuntu ship etc/resolv.conf as a symlink (e.g. -> /run/systemd/...).
   # Redirecting would follow the dangling link and fail, so replace it with a
-  # regular file. Only this single file inside the rootfs is removed.
+  # regular file.
   if [ -L "$rootfs/etc/resolv.conf" ]; then
     if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
       run_as_root rm -f "$rootfs/etc/resolv.conf" 2>/dev/null || true
@@ -123,10 +115,8 @@ configure_rootfs_dns() {
     fi
   fi
   
-  # Write resolv.conf with root if needed.
-  local tmp_resolv
-  tmp_resolv=$(mktemp 2>/dev/null || printf '/tmp/resolv.conf.%s' "$$")
-  {
+  local resolv_content
+  resolv_content=$(
     local d
     for d in "$dns" \
       "$(safe_get getprop net.dns1)" \
@@ -134,23 +124,13 @@ configure_rootfs_dns() {
       "1.1.1.1" "8.8.8.8" "9.9.9.9" "8.8.4.4"; do
       [ -n "$d" ] && printf 'nameserver %s\n' "$d"
     done | awk '!seen[$0]++'
-  } >"$tmp_resolv" || { log_warn "Could not create temporary resolv.conf"; return 1; }
+  )
   
-  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
-    if ! run_as_root cp "$tmp_resolv" "$rootfs/etc/resolv.conf" 2>/dev/null; then
-      rm -f "$tmp_resolv" 2>/dev/null
-      log_warn "Could not write resolv.conf into rootfs"
-      return 1
-    fi
-  else
-    if ! cp "$tmp_resolv" "$rootfs/etc/resolv.conf" 2>/dev/null; then
-      rm -f "$tmp_resolv" 2>/dev/null
-      log_warn "Could not write resolv.conf into rootfs"
-      return 1
-    fi
+  if ! write_rootfs_file "$rootfs/etc/resolv.conf" "$resolv_content"; then
+    log_warn "Could not write resolv.conf into rootfs"
+    return 1
   fi
   
-  rm -f "$tmp_resolv" 2>/dev/null
   log_debug "wrote DNS ($dns) into $rootfs/etc/resolv.conf"
 }
 
@@ -161,6 +141,7 @@ configure_rootfs_environment() {
   [ -n "$rootfs" ] || return 1
   path_within "$rootfs" "${LINUX_BASE:-$rootfs}" || return 1
 
+  fix_rootfs_symlinks "$rootfs"
   configure_rootfs_dns "$rootfs" "$dns"
 
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
@@ -168,23 +149,11 @@ configure_rootfs_environment() {
     return 0
   fi
 
-  local is_root=0
-  [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ] && is_root=1
-
   # 1. Configure /etc/hosts if missing or empty
   if [ ! -s "$rootfs/etc/hosts" ]; then
-    local tmp_hosts
-    tmp_hosts=$(mktemp 2>/dev/null || printf '/tmp/hosts.%s' "$$")
-    cat >"$tmp_hosts" <<'EOF'
-127.0.0.1 localhost
-::1 localhost ip6-localhost ip6-loopback
-EOF
-    if [ "$is_root" = 1 ]; then
-      run_as_root cp "$tmp_hosts" "$rootfs/etc/hosts" 2>/dev/null || true
-    else
-      cp "$tmp_hosts" "$rootfs/etc/hosts" 2>/dev/null || true
-    fi
-    rm -f "$tmp_hosts" 2>/dev/null
+    local hosts_content
+    hosts_content=$(printf '127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n')
+    write_rootfs_file "$rootfs/etc/hosts" "$hosts_content" || true
   fi
 
   # 2. Fix Debian/Ubuntu APT on Android:
@@ -193,40 +162,20 @@ EOF
   # resulting in "Temporary failure resolving 'deb.debian.org'".
   # Setting APT::Sandbox::User "root" fixes this cleanly.
   if [ -d "$rootfs/etc/apt" ] || [ -f "$rootfs/usr/bin/apt-get" ] || [ -f "$rootfs/usr/bin/apt" ]; then
-    local tmp_apt
-    tmp_apt=$(mktemp 2>/dev/null || printf '/tmp/99android.%s' "$$")
-    printf 'APT::Sandbox::User "root";\n' >"$tmp_apt"
-    if [ "$is_root" = 1 ]; then
-      run_as_root mkdir -p "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
-      run_as_root cp "$tmp_apt" "$rootfs/etc/apt/apt.conf.d/99android" 2>/dev/null || true
-    else
-      mkdir -p "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
-      cp "$tmp_apt" "$rootfs/etc/apt/apt.conf.d/99android" 2>/dev/null || true
-    fi
-    rm -f "$tmp_apt" 2>/dev/null
+    write_rootfs_file "$rootfs/etc/apt/apt.conf.d/99android" 'APT::Sandbox::User "root";' || true
   fi
 
   # 3. Android AID network groups in /etc/group
   if [ -f "$rootfs/etc/group" ]; then
-    local tmp_group
-    tmp_group=$(mktemp 2>/dev/null || printf '/tmp/group.%s' "$$")
-    if [ "$is_root" = 1 ]; then
-      run_as_root cp "$rootfs/etc/group" "$tmp_group" 2>/dev/null || true
-    else
-      cp "$rootfs/etc/group" "$tmp_group" 2>/dev/null || true
-    fi
+    local cur_group
+    cur_group=$(cat "$rootfs/etc/group" 2>/dev/null || true)
     local g
     for g in "aid_inet:x:3003:root,_apt" "aid_net_raw:x:3004:root" "aid_net_admin:x:3005:root" "aid_sdcard_rw:x:1015:root" "aid_media_rw:x:1023:root" "aid_everybody:x:9997:root"; do
       local gname="${g%%:*}"
-      if ! grep -q "^${gname}:" "$tmp_group" 2>/dev/null; then
-        printf '%s\n' "$g" >>"$tmp_group"
+      if ! printf '%s\n' "$cur_group" | grep -q "^${gname}:"; then
+        cur_group=$(printf '%s\n%s' "$cur_group" "$g")
       fi
     done
-    if [ "$is_root" = 1 ]; then
-      run_as_root cp "$tmp_group" "$rootfs/etc/group" 2>/dev/null || true
-    else
-      cp "$tmp_group" "$rootfs/etc/group" 2>/dev/null || true
-    fi
-    rm -f "$tmp_group" 2>/dev/null
+    write_rootfs_file "$rootfs/etc/group" "$cur_group" || true
   fi
 }

@@ -45,18 +45,19 @@ linux_run() {
     log_info "[dry-run] (guest) $cmd"
     return 0
   fi
+  fix_rootfs_symlinks "$LINUX_ROOT"
   local gshell="/bin/sh"
   if [ -x "$LINUX_ROOT/bin/bash" ]; then gshell="/bin/bash"
+  elif [ -x "$LINUX_ROOT/usr/bin/bash" ]; then gshell="/bin/bash"
   elif [ -x "$LINUX_ROOT/bin/sh" ]; then gshell="/bin/sh"
-  elif [ -x "$LINUX_ROOT/usr/bin/bash" ]; then gshell="/usr/bin/bash"
-  elif [ -x "$LINUX_ROOT/usr/bin/sh" ]; then gshell="/usr/bin/sh"
+  elif [ -x "$LINUX_ROOT/usr/bin/sh" ]; then gshell="/bin/sh"
   fi
   local chroot_bin
   chroot_bin=$(command -v chroot 2>/dev/null || echo "chroot")
   case "${INSTALL_MODE:-}" in
     chroot)
       chroot_start "$LINUX_ROOT" >/dev/null 2>&1 || true
-      run_as_root "$chroot_bin" "$LINUX_ROOT" "$gshell" -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=${TERM:-xterm}; $cmd" ;;
+      run_as_root "$chroot_bin" "$LINUX_ROOT" "$gshell" -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=${TERM:-xterm} DEBIAN_FRONTEND=noninteractive; $cmd" ;;
     proot|termux)
       proot_enter "$LINUX_ROOT" "$cmd" ;;
     *) log_error "Unknown INSTALL_MODE"; return 1 ;;
