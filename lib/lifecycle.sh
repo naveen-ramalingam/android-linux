@@ -57,7 +57,16 @@ linux_run() {
   case "${INSTALL_MODE:-}" in
     chroot)
       chroot_start "$LINUX_ROOT" >/dev/null 2>&1 || true
-      run_as_root "$chroot_bin" "$LINUX_ROOT" "$gshell" -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=${TERM:-xterm} DEBIAN_FRONTEND=noninteractive; $cmd" ;;
+      run_as_root "$chroot_bin" "$LINUX_ROOT" /usr/bin/env -i \
+        HOME=/root \
+        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+        TERM="${TERM:-xterm}" \
+        TMPDIR=/tmp \
+        TMP=/tmp \
+        TEMP=/tmp \
+        LANG=C.UTF-8 \
+        DEBIAN_FRONTEND=noninteractive \
+        "$gshell" -c "$cmd" ;;
     proot|termux)
       proot_enter "$LINUX_ROOT" "$cmd" ;;
     *) log_error "Unknown INSTALL_MODE"; return 1 ;;
@@ -76,8 +85,10 @@ guest_pkg_install() {
       # Fix: after installing the keyring package, directly copy the .gpg files
       # from /usr/share/keyrings/ into /etc/apt/trusted.gpg.d/ — exactly what
       # the postinst does — then re-run apt-get update with signatures enabled.
-      linux_run "export DEBIAN_FRONTEND=noninteractive; \
-        mkdir -p /etc/apt/trusted.gpg.d; \
+      linux_run "export DEBIAN_FRONTEND=noninteractive TMPDIR=/tmp TMP=/tmp TEMP=/tmp; \
+        mkdir -p /tmp /var/tmp /etc/apt/trusted.gpg.d; \
+        chmod 1777 /tmp /var/tmp 2>/dev/null || true; \
+        dpkg --configure -a --force-confdef --force-confold 2>/dev/null || true; \
         if [ -f /etc/nsswitch.conf ]; then \
           sed -i 's/ systemd//g' /etc/nsswitch.conf; \
         fi; \

@@ -56,13 +56,29 @@ proot_enter() {
   proot_opts+=(--cwd=/root)
 
   # shellcheck disable=SC2016
-  local cmd='HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=${TERM:-xterm} '
+  local cmd='HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=${TERM:-xterm} TMPDIR=/tmp TMP=/tmp TEMP=/tmp LANG=C.UTF-8 '
   if [ "$#" -gt 0 ]; then
     proot "${proot_opts[@]}" \
-      "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "$cmd exec $*"
+      "${binds[@]}" -r "$rootfs" /usr/bin/env -i \
+      HOME=/root \
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+      TERM="${TERM:-xterm}" \
+      TMPDIR=/tmp \
+      TMP=/tmp \
+      TEMP=/tmp \
+      LANG=C.UTF-8 \
+      sh -c "$cmd exec $*"
   else
     proot "${proot_opts[@]}" \
-      "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "${cmd} exec $shell -l"
+      "${binds[@]}" -r "$rootfs" /usr/bin/env -i \
+      HOME=/root \
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+      TERM="${TERM:-xterm}" \
+      TMPDIR=/tmp \
+      TMP=/tmp \
+      TEMP=/tmp \
+      LANG=C.UTF-8 \
+      sh -c "${cmd} exec $shell -l"
   fi
 }
 

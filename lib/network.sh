@@ -149,6 +149,26 @@ configure_rootfs_environment() {
     return 0
   fi
 
+  # 0. Ensure /tmp and /var/tmp exist and have standard permissions (1777)
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root mkdir -p "$rootfs/tmp" "$rootfs/var/tmp" 2>/dev/null || true
+    run_as_root chmod 1777 "$rootfs/tmp" "$rootfs/var/tmp" 2>/dev/null || true
+  else
+    mkdir -p "$rootfs/tmp" "$rootfs/var/tmp" 2>/dev/null || true
+    chmod 1777 "$rootfs/tmp" "$rootfs/var/tmp" 2>/dev/null || true
+  fi
+
+  # Ensure guest environment sets standard /tmp and PATH
+  write_rootfs_file "$rootfs/etc/environment" 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+TMPDIR="/tmp"
+TMP="/tmp"
+TEMP="/tmp"
+' || true
+
+  if [ -d "$rootfs/etc/profile.d" ] || mkdir -p "$rootfs/etc/profile.d" 2>/dev/null; then
+    write_rootfs_file "$rootfs/etc/profile.d/00-tmpdir.sh" 'export TMPDIR=/tmp TMP=/tmp TEMP=/tmp' || true
+  fi
+
   # 1. Configure /etc/hosts if missing or empty
   if [ ! -s "$rootfs/etc/hosts" ]; then
     local hosts_content
