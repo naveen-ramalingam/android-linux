@@ -51,6 +51,7 @@ trap '_on_exit' EXIT
 OPT_DISTRO=""
 OPT_PATH=""
 OPT_MODE=""
+OPT_USER=""
 
 usage() {
   cat <<EOF
@@ -88,6 +89,7 @@ Options:
   --proot         Force PRoot mode
   --ssh           Auto-install and start OpenSSH server
   --no-ssh        Skip OpenSSH installation
+  --user <name>   Linux user account name (default: android)
   --desktop <de>  Desktop environment: xfce | lxqt | none
   --distro <name> debian | debian-stable | ubuntu | alpine | archarm
   --path <dir>    Installation base directory
@@ -111,6 +113,8 @@ parse_global_opts() {
       --proot) OPT_MODE="proot" ;;
       --ssh) OPT_SSH=1 ;;
       --no-ssh) OPT_SSH=0 ;;
+      --user) shift; OPT_USER="${1:-}" ;;
+      --user=*) OPT_USER="${1#*=}" ;;
       --desktop) shift; OPT_DESKTOP="${1:-}" ;;
       --desktop=*) OPT_DESKTOP="${1#*=}" ;;
       --distro) shift; OPT_DISTRO="${1:-}" ;;
@@ -131,6 +135,7 @@ init_runtime() {
   config_load
   OPT_SSH="${OPT_SSH:-}"
   OPT_DESKTOP="${OPT_DESKTOP:-}"
+  OPT_USER="${OPT_USER:-}"
   # Resolve base: CLI flag > config > env default.
   if [ -n "$OPT_PATH" ]; then LINUX_BASE="$OPT_PATH"; fi
   if [ -z "${LINUX_BASE:-}" ]; then
@@ -148,7 +153,9 @@ init_runtime() {
   : "${DISTRO:=debian}"
   [ -n "$OPT_MODE" ] && INSTALL_MODE="$OPT_MODE"
   [ -n "$OPT_DESKTOP" ] && DESKTOP="$OPT_DESKTOP"
-  export LINUX_BASE LINUX_ROOT BACKUP_DIR DISTRO INSTALL_MODE DESKTOP
+  [ -n "$OPT_USER" ] && LINUX_USER="$OPT_USER"
+  : "${LINUX_USER:=android}"
+  export LINUX_BASE LINUX_ROOT BACKUP_DIR DISTRO INSTALL_MODE DESKTOP LINUX_USER
   distro_resolve "$DISTRO" >/dev/null 2>&1 || true
 }
 
@@ -232,6 +239,19 @@ wizard_install() {
     local de; de=$(ask "Select" "1")
     case "$de" in 2) DESKTOP="xfce" ;; 3) DESKTOP="lxqt" ;; *) DESKTOP="none" ;; esac
   fi
+
+  # Step: user account
+  LINUX_USER="${OPT_USER:-${LINUX_USER:-android}}"
+  if is_interactive && [ -z "${OPT_USER:-}" ]; then
+    printf '\n%s▸ User Account%s\n\n' "${C_BOLD}" "${C_RESET}"
+    local u; u=$(ask "Linux username" "$LINUX_USER")
+    while ! validate_name "$u"; do
+      log_warn "Invalid username '$u'. Use lowercase letters, digits, _ or -."
+      u=$(ask "Linux username" "android")
+    done
+    LINUX_USER="$u"
+  fi
+
   local want_ssh=0
   if [ -n "${OPT_SSH:-}" ]; then
     want_ssh="$OPT_SSH"
@@ -247,6 +267,7 @@ wizard_install() {
   printf '  %sDistro:%s     %s\n' "$C_BOLD" "$C_RESET" "$DISTRO_DISPLAY"
   printf '  %sMode:%s       %s\n' "$C_BOLD" "$C_RESET" "$(mode_label "$INSTALL_MODE")"
   printf '  %sLocation:%s   %s\n' "$C_BOLD" "$C_RESET" "$LINUX_BASE"
+  printf '  %sUsername:%s   %s\n' "$C_BOLD" "$C_RESET" "$LINUX_USER"
   printf '  %sDesktop:%s    %s\n' "$C_BOLD" "$C_RESET" "$DESKTOP"
   printf '  %sSSH:%s        %s\n' "$C_BOLD" "$C_RESET" "$([ "$want_ssh" = 1 ] && echo yes || echo no)"
   printf '  %sRequired:%s   ~%s\n' "$C_BOLD" "$C_RESET" "$(human_bytes "$need")"
@@ -260,16 +281,19 @@ wizard_install() {
   config_set LINUX_BASE "$LINUX_BASE"; config_set LINUX_ROOT "$LINUX_ROOT"
   config_set DISTRO "$DISTRO"; config_set INSTALL_MODE "$INSTALL_MODE"
   config_set DESKTOP "$DESKTOP"; config_set BACKUP_DIR "$BACKUP_DIR"
+  config_set LINUX_USER "$LINUX_USER"
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" != "1" ]; then config_save; fi
 
   # Step: perform install
   do_install || return 1
 
+  # Create the user account inside the rootfs
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" != "1" ]; then
-    [ "$want_ssh" = 1 ] && ssh_install "${SSH_PORT:-2222}"
+    ssh_ensure_user "$LINUX_USER"
+    [ "$want_ssh" = 1 ] && ssh_install "${SSH_PORT:-2222}" "$LINUX_USER"
     [ "$DESKTOP" != "none" ] && desktop_install "$DESKTOP"
   else
-    log_info "[dry-run] would configure SSH/desktop if selected"
+    log_info "[dry-run] would configure user '$LINUX_USER', SSH/desktop if selected"
   fi
 
   printf '\n'
@@ -369,11 +393,14 @@ menu_desktop() {
 
 menu_ssh() {
   printf '\n%s--- SSH Server Management ---%s\n' "$C_BOLD" "$C_RESET"
-  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop  %s[4]%s Status\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_CYAN" "$C_RESET"
+  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop  %s[4]%s Status  %s[5]%s User/Password\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
   local c; c=$(ask "SSH" "")
   case "$c" in
-    1) ssh_install "${SSH_PORT:-2222}" ;;
+    1) ssh_install "${SSH_PORT:-2222}" "${LINUX_USER:-android}" ;;
     2) ssh_start ;; 3) ssh_stop ;; 4) ssh_status ;;
+    5)
+      local u; u=$(ask "Username" "${LINUX_USER:-android}")
+      ssh_ensure_user "$u" ;;
   esac
 }
 

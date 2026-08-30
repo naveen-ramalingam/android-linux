@@ -4,20 +4,21 @@
 
 ssh_install() {
   local port="${1:-${SSH_PORT:-2222}}"
-  local user="${LINUX_USER:-android}"
+  local user="${2:-${LINUX_USER:-android}}"
   validate_port "$port" || { log_error "Invalid SSH port: $port"; return 1; }
   validate_name "$user" || { log_error "Invalid Linux username: $user (use lowercase letters, digits, _ or -)"; return 1; }
   log_info "Installing OpenSSH server in ${DISTRO_DISPLAY:-Linux}..."
 
   case "${DISTRO_FN:-debian}" in
-    debian|ubuntu) guest_pkg_install openssh-server || return 1 ;;
-    alpine) guest_pkg_install openssh || return 1 ;;
-    archarm) guest_pkg_install openssh || return 1 ;;
+    debian|ubuntu) guest_pkg_install openssh-server sudo || guest_pkg_install openssh-server || return 1 ;;
+    alpine) guest_pkg_install openssh sudo || guest_pkg_install openssh || return 1 ;;
+    archarm) guest_pkg_install openssh sudo || guest_pkg_install openssh || return 1 ;;
   esac
 
   SSH_PORT="$port"; config_set SSH_PORT "$port"
+  LINUX_USER="$user"; config_set LINUX_USER "$user"
   # Configure sshd to use the non-conflicting port, permit password auth, root login, and generate host keys.
-  linux_run "mkdir -p /etc/ssh /run/sshd /var/run/sshd /var/empty"
+  linux_run "mkdir -p /etc/ssh /run/sshd /var/run/sshd /var/empty /tmp"
   linux_run "sed -i 's/^[#]*Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
   linux_run "sed -i 's/^[#]*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PermitRootLogin yes\n' >> /etc/ssh/sshd_config"
   linux_run "sed -i 's/^[#]*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PasswordAuthentication yes\n' >> /etc/ssh/sshd_config"
@@ -29,36 +30,52 @@ ssh_install() {
   config_save
   log_ok "SSH installed."
   # Automatically start SSH server after install
-  ssh_start
+  ssh_start "$port" "$user"
 }
 
 ssh_ensure_user() {
-  local user="$1"
+  local user="${1:-${LINUX_USER:-android}}"
   validate_name "$user" || { log_error "Invalid username; skipping user creation"; return 1; }
+  LINUX_USER="$user"; config_set LINUX_USER "$user"; config_save
+
+  log_info "Configuring guest user account '${user}'..."
   case "${DISTRO_FN:-debian}" in
     alpine)
-      linux_run "id ${user} >/dev/null 2>&1 || adduser -D ${user} 2>/dev/null || true" ;;
+      linux_run "id ${user} >/dev/null 2>&1 || adduser -D -s /bin/sh ${user} 2>/dev/null || true"
+      linux_run "addgroup ${user} wheel 2>/dev/null || true" ;;
     *)
-      linux_run "id ${user} >/dev/null 2>&1 || useradd -m -s /bin/bash ${user} 2>/dev/null || true" ;;
+      linux_run "id ${user} >/dev/null 2>&1 || useradd -m -s /bin/bash ${user} 2>/dev/null || true"
+      linux_run "usermod -aG sudo ${user} 2>/dev/null || usermod -aG wheel ${user} 2>/dev/null || true" ;;
   esac
+
   if is_interactive; then
-    local pw pw2
-    pw=$(ask_secret "Set password for guest user '${user}'")
-    pw2=$(ask_secret "Confirm password")
-    if [ -n "$pw" ] && [ "$pw" = "$pw2" ]; then
-      if have_cmd base64; then
-        # Encode user:password as base64 on the host; the base64 alphabet has no
-        # shell metacharacters, so it cannot inject commands in the guest shell.
-        local cred
-        cred=$(printf '%s:%s' "$user" "$pw" | base64 | tr -d '\n')
-        linux_run "printf '%s' '${cred}' | base64 -d | chpasswd"
-        log_ok "Password set for ${user}"
-      else
-        log_warn "base64 not found; password not set. Run 'passwd ${user}' inside the guest."
+    local attempts=0 max_attempts=3 pw pw2
+    while [ "$attempts" -lt "$max_attempts" ]; do
+      attempts=$(( attempts + 1 ))
+      pw=$(ask_secret "Set password for Linux user '${user}' (press Enter to skip)")
+      if [ -z "$pw" ]; then
+        log_info "Password setup skipped for '${user}'. Set later with 'passwd ${user}' inside Linux."
+        return 0
       fi
-    else
-      log_warn "Passwords empty or mismatched; skipped. Set later with 'passwd ${user}' inside the guest."
-    fi
+      pw2=$(ask_secret "Confirm password")
+      if [ "$pw" = "$pw2" ]; then
+        if have_cmd base64; then
+          # Encode user:password as base64 on the host; the base64 alphabet has no
+          # shell metacharacters, so it cannot inject commands in the guest shell.
+          local cred
+          cred=$(printf '%s:%s' "$user" "$pw" | base64 | tr -d '\n')
+          linux_run "printf '%s' '${cred}' | base64 -d | chpasswd"
+          log_ok "Password configured successfully for user '${user}'."
+        else
+          linux_run "printf '%s\n%s\n' '${pw}' '${pw}' | passwd ${user} 2>/dev/null || true"
+          log_ok "Password configured successfully for user '${user}'."
+        fi
+        return 0
+      else
+        log_warn "Passwords do not match. Please try again ($attempts/$max_attempts)."
+      fi
+    done
+    log_warn "Password configuration skipped after $max_attempts attempts. Set later with 'passwd ${user}' inside Linux."
   else
     log_warn "Non-interactive: no password set. Prefer SSH keys or set a password later."
   fi
