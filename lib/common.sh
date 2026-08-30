@@ -70,8 +70,14 @@ _al_log_to_file() {
   # $1=level $2=message
   _al_ensure_logdir
   [ -d "$ANDROID_LINUX_LOG_DIR" ] || return 0
+  # Prevent infinite loops if logging itself fails - just bail out silently
+  if [ -n "${_AL_LOGGING_IN_PROGRESS:-}" ]; then
+    return 0
+  fi
+  _AL_LOGGING_IN_PROGRESS=1
   printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '?')" "$1" "$2" \
     >>"$ANDROID_LINUX_LOG_FILE" 2>/dev/null || true
+  unset _AL_LOGGING_IN_PROGRESS
 }
 
 log_info()  { printf '%s[*]%s %s\n' "$C_CYAN" "$C_RESET" "$*"; _al_log_to_file INFO  "$*"; }
