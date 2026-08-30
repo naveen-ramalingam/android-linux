@@ -49,6 +49,20 @@ doctor_run() {
   if [ -n "${LINUX_ROOT:-}" ] && [ -d "$LINUX_ROOT" ]; then
     if [ -e "$LINUX_ROOT/bin/sh" ] || [ -e "$LINUX_ROOT/bin/busybox" ]; then
       _pass "Rootfs looks valid ($LINUX_ROOT)"
+      # Auto-verify / update rootfs environment (DNS, APT sandbox, Android GIDs)
+      configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}" 2>/dev/null || true
+      if [ -f "$LINUX_ROOT/etc/resolv.conf" ]; then
+        _pass "Guest DNS configuration OK ($LINUX_ROOT/etc/resolv.conf)"
+      else
+        _warn "Guest DNS missing ($LINUX_ROOT/etc/resolv.conf)"
+      fi
+      if [ -d "$LINUX_ROOT/etc/apt" ]; then
+        if [ -f "$LINUX_ROOT/etc/apt/apt.conf.d/99android" ]; then
+          _pass "APT Android sandbox configuration active"
+        else
+          _warn "APT Android sandbox config missing (auto-configured now)"
+        fi
+      fi
     else
       _fail "Rootfs present but missing /bin/sh - extraction may be incomplete"
     fi

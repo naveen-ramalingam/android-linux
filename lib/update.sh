@@ -18,7 +18,16 @@ update_run() {
   fi
 
   if [ -d "$APP_HOME/.git" ] && have_cmd git; then
-    ( cd "$APP_HOME" && git pull --ff-only ) && { log_ok "Updated via git."; return 0; }
+    if ( cd "$APP_HOME" && git pull --ff-only ); then
+      log_ok "Updated via git."
+      config_load
+      if [ -n "${LINUX_ROOT:-}" ] && [ -d "$LINUX_ROOT" ]; then
+        log_info "Applying latest configuration to rootfs (DNS, APT sandbox, Android GIDs)..."
+        configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
+        log_ok "Rootfs configuration updated."
+      fi
+      return 0
+    fi
     log_warn "git pull failed; falling back to archive download."
   fi
 
@@ -40,6 +49,12 @@ update_run() {
         cp -rf "$src"/bin "$src"/lib "$src"/profiles "$src"/configs "$APP_HOME"/ 2>/dev/null || true
         log_ok "Updated from archive."
         safe_remove "$tmp" "$tmp" 2>/dev/null || rm -rf "$tmp"
+        config_load
+        if [ -n "${LINUX_ROOT:-}" ] && [ -d "$LINUX_ROOT" ]; then
+          log_info "Applying latest configuration to rootfs (DNS, APT sandbox, Android GIDs)..."
+          configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
+          log_ok "Rootfs configuration updated."
+        fi
         return 0
       fi
     fi

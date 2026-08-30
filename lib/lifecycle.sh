@@ -60,9 +60,10 @@ linux_run() {
 # guest_pkg_install: install packages using the guest's package manager.
 guest_pkg_install() {
   local pkgs="$*"
+  configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
   case "${DISTRO_FN:-debian}" in
     debian|ubuntu)
-      linux_run "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y $pkgs" ;;
+      linux_run "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --fix-missing $pkgs" ;;
     alpine)
       linux_run "apk update && apk add $pkgs" ;;
     archarm)
