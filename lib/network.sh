@@ -171,8 +171,11 @@ TEMP="/tmp"
 
   # 1. Configure /etc/hosts if missing or empty
   if [ ! -s "$rootfs/etc/hosts" ]; then
+    local hname
+    hname="$(hostname 2>/dev/null || true)"
+    [ -z "$hname" ] && hname="localhost"
     local hosts_content
-    hosts_content=$(printf '127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n')
+    hosts_content=$(printf '127.0.0.1 localhost %s\n::1 localhost ip6-localhost ip6-loopback\n' "$hname")
     write_rootfs_file "$rootfs/etc/hosts" "$hosts_content" || true
   fi
 
