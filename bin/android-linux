@@ -300,7 +300,7 @@ main_menu() {
     local c; c=$(ask "Choose" "")
     case "$c" in
       1) linux_enter || true ;;
-      2) linux_start && log_ok "Started" || true ;;
+      2) if linux_start; then log_ok "Started"; fi ;;
       3) linux_stop || true ;;
       4) wizard_install || true ;;
       5) menu_desktop ;;

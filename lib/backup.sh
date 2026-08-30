@@ -35,7 +35,7 @@ backup_create() {
       || { log_error "Backup failed"; return 1; }
   fi
   # Include the user config file separately if outside base.
-  [ -f "$cfg" ] && cp -f "$cfg" "$outdir/config.conf.bak" 2>/dev/null || true
+  if [ -f "$cfg" ]; then cp -f "$cfg" "$outdir/config.conf.bak" 2>/dev/null || true; fi
 
   log_ok "Backup created: $out ($(human_bytes "$(wc -c <"$out" 2>/dev/null || echo 0)"))"
   printf '%s\n' "$out"
