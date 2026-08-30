@@ -18,9 +18,9 @@ ssh_install() {
   SSH_PORT="$port"; config_set SSH_PORT "$port"
   # Configure sshd to use the non-conflicting port, permit password auth, root login, and generate host keys.
   linux_run "mkdir -p /etc/ssh /run/sshd /var/run/sshd /var/empty"
-  linux_run "sed -i 's/^#\\?Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
-  linux_run "sed -i 's/^#\\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PermitRootLogin yes\n' >> /etc/ssh/sshd_config"
-  linux_run "sed -i 's/^#\\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PasswordAuthentication yes\n' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^[#]*Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^[#]*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PermitRootLogin yes\n' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^[#]*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PasswordAuthentication yes\n' >> /etc/ssh/sshd_config"
   linux_run "ssh-keygen -A 2>/dev/null || true"
 
   # Create the Linux user if missing.
