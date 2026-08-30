@@ -99,10 +99,9 @@ chroot_enter() {
     run_as_root ln -sf pts/ptmx "$rootfs/dev/ptmx" 2>/dev/null || true
   fi
   run_as_root chmod 666 "$rootfs/dev/ptmx" 2>/dev/null || true
-  run_as_root env -i \
-    HOME=/root TERM="${TERM:-xterm}" \
-    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    chroot "$rootfs" "$shell" -l
+  local chroot_bin
+  chroot_bin=$(command -v chroot 2>/dev/null || echo "chroot")
+  run_as_root "$chroot_bin" "$rootfs" "$shell" -l
 }
 
 chroot_status() {

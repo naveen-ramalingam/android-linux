@@ -40,17 +40,23 @@ linux_status() {
 # Used by ssh/desktop installers. Usage: linux_run "apt-get update"
 linux_run() {
   local cmd="$*"
-  [ -d "$LINUX_ROOT" ] || { log_error "rootfs missing"; return 1; }
+  [ -d "$LINUX_ROOT" ] || { log_error "rootfs missing: $LINUX_ROOT"; return 1; }
   if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
     log_info "[dry-run] (guest) $cmd"
     return 0
   fi
+  local gshell="/bin/sh"
+  if [ -x "$LINUX_ROOT/bin/bash" ]; then gshell="/bin/bash"
+  elif [ -x "$LINUX_ROOT/bin/sh" ]; then gshell="/bin/sh"
+  elif [ -x "$LINUX_ROOT/usr/bin/bash" ]; then gshell="/usr/bin/bash"
+  elif [ -x "$LINUX_ROOT/usr/bin/sh" ]; then gshell="/usr/bin/sh"
+  fi
+  local chroot_bin
+  chroot_bin=$(command -v chroot 2>/dev/null || echo "chroot")
   case "${INSTALL_MODE:-}" in
     chroot)
       chroot_start "$LINUX_ROOT" >/dev/null 2>&1 || true
-      run_as_root env -i HOME=/root \
-        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        chroot "$LINUX_ROOT" /bin/sh -c "$cmd" ;;
+      run_as_root "$chroot_bin" "$LINUX_ROOT" "$gshell" -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=${TERM:-xterm}; $cmd" ;;
     proot|termux)
       proot_enter "$LINUX_ROOT" "$cmd" ;;
     *) log_error "Unknown INSTALL_MODE"; return 1 ;;

@@ -149,6 +149,7 @@ init_runtime() {
   [ -n "$OPT_MODE" ] && INSTALL_MODE="$OPT_MODE"
   [ -n "$OPT_DESKTOP" ] && DESKTOP="$OPT_DESKTOP"
   export LINUX_BASE LINUX_ROOT BACKUP_DIR DISTRO INSTALL_MODE DESKTOP
+  distro_resolve "$DISTRO" >/dev/null 2>&1 || true
 }
 
 is_installed() { [ -d "${LINUX_ROOT:-/nonexistent}" ] && { [ -e "$LINUX_ROOT/bin/sh" ] || [ -e "$LINUX_ROOT/bin/busybox" ]; }; }
