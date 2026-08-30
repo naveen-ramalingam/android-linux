@@ -173,11 +173,11 @@ configure_rootfs_environment() {
   if [ -f "$rootfs/etc/nsswitch.conf" ]; then
     local nss_content nss_fixed
     nss_content=$(cat "$rootfs/etc/nsswitch.conf" 2>/dev/null || true)
+    # Remove 'systemd' (and 'mdns4_minimal', 'mdns4') NSS plugins — they all
+    # require daemons/sockets that don't exist in an Android chroot.
+    # Use simple word-delete (BusyBox sed compatible, no backreferences needed).
     nss_fixed=$(printf '%s\n' "$nss_content" \
-      | sed 's/^\(passwd:\s*\).*files.*/\1files/' \
-      | sed 's/^\(group:\s*\).*files.*/\1files/' \
-      | sed 's/^\(shadow:\s*\).*files.*/\1files/' \
-      | sed 's/^\(gshadow:\s*\).*files.*/\1files/')
+      | sed 's/ systemd//g; s/ mdns4_minimal//g; s/ mdns4//g; s/[[:space:]]*$//')
     if [ "$nss_content" != "$nss_fixed" ]; then
       write_rootfs_file "$rootfs/etc/nsswitch.conf" "$nss_fixed" || true
     fi
