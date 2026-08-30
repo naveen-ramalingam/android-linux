@@ -156,29 +156,37 @@ configure_rootfs_environment() {
     write_rootfs_file "$rootfs/etc/hosts" "$hosts_content" || true
   fi
 
-  # 1b. Ensure /etc/passwd has a root entry — dpkg resolves users via getpwnam()
-  # and aborts with "unknown system user" if root is missing from passwd.
-  if [ -f "$rootfs/etc/passwd" ]; then
-    if ! run_as_root grep -q "^root:" "$rootfs/etc/passwd" 2>/dev/null \
-       && ! grep -q "^root:" "$rootfs/etc/passwd" 2>/dev/null; then
-      local passwd_tmp; passwd_tmp=$(run_as_root cat "$rootfs/etc/passwd" 2>/dev/null || cat "$rootfs/etc/passwd" 2>/dev/null || true)
-      write_rootfs_file "$rootfs/etc/passwd" "root:x:0:0:root:/root:/bin/bash
-${passwd_tmp}" || true
+  # 1b. Strip 'systemd' from nsswitch.conf passwd/group/shadow lines.
+  #
+  # The LXC rootfs ships with "passwd: files systemd". The systemd NSS plugin
+  # requires a running systemd (D-Bus socket, /proc, etc.) — none of which
+  # exist inside an Android chroot. When the plugin fails to initialise, glibc
+  # returns NULL for ALL getpwnam() / getgrnam() calls, even for users that ARE
+  # in /etc/passwd. dpkg reads nsswitch.conf on startup and calls getpwnam()
+  # for every statoverride entry (e.g. "root messagebus …") — if either lookup
+  # returns NULL it prints "unknown system user 'root'" and aborts with a
+  # "fatal, unrecoverable error".
+  #
+  # Fix: rewrite the affected lines to "files" only, in-place.
+  # We do this unconditionally on every configure run so it survives upgrades
+  # that might restore the original file.
+  if [ -f "$rootfs/etc/nsswitch.conf" ]; then
+    local nss_content nss_fixed
+    nss_content=$(cat "$rootfs/etc/nsswitch.conf" 2>/dev/null || true)
+    nss_fixed=$(printf '%s\n' "$nss_content" \
+      | sed 's/^\(passwd:\s*\).*files.*/\1files/' \
+      | sed 's/^\(group:\s*\).*files.*/\1files/' \
+      | sed 's/^\(shadow:\s*\).*files.*/\1files/' \
+      | sed 's/^\(gshadow:\s*\).*files.*/\1files/')
+    if [ "$nss_content" != "$nss_fixed" ]; then
+      write_rootfs_file "$rootfs/etc/nsswitch.conf" "$nss_fixed" || true
     fi
   else
-    write_rootfs_file "$rootfs/etc/passwd" \
-"root:x:0:0:root:/root:/bin/bash
-daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
-_apt:x:42:65534::/nonexistent:/usr/sbin/nologin
-nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin" || true
-  fi
-
-  # 1c. Ensure /etc/nsswitch.conf uses files — required for getpwnam() in chroot.
-  if [ ! -f "$rootfs/etc/nsswitch.conf" ]; then
     write_rootfs_file "$rootfs/etc/nsswitch.conf" \
 "passwd:   files
 group:    files
 shadow:   files
+gshadow:  files
 hosts:    files dns
 networks: files
 protocols: db files
