@@ -125,8 +125,8 @@ android-linux              # Interactive menu (no arguments)
 | `android-linux update` | Update AndroidLinux scripts (keeps your rootfs) |
 | `android-linux backup` | Back up rootfs + config |
 | `android-linux restore <file>` | Restore from a backup archive |
-| `android-linux network` | Show network status |
-| `android-linux ssh <sub>` | Manage SSH server (`install`/`start`/`stop`) |
+| `android-linux network` / `ip` | Show network status, interface IPs, and connection commands |
+| `android-linux ssh <sub>` | Manage SSH server (`install`/`start`/`stop`/`status`) |
 | `android-linux desktop <sub>` | Manage desktop/VNC (`install`/`start`/`stop`/`status`) |
 | `android-linux doctor` | Run diagnostics with suggested fixes |
 | `android-linux logs` | Show recent log output |
@@ -143,6 +143,9 @@ android-linux              # Interactive menu (no arguments)
 --yes              Assume "yes" to confirmations
 --root             Force rooted chroot mode
 --proot            Force PRoot mode
+--ssh              Auto-install and start OpenSSH server
+--no-ssh           Skip OpenSSH installation
+--desktop <de>     Desktop environment: xfce | lxqt | none
 --distro <name>    debian | debian-stable | ubuntu | alpine | archarm
 --path <dir>       Installation base directory
 ```
@@ -150,7 +153,7 @@ android-linux              # Interactive menu (no arguments)
 Example:
 
 ```bash
-android-linux install --distro debian --proot --yes
+android-linux install --distro debian --proot --ssh --desktop xfce --yes
 android-linux install --dry-run
 ```
 
@@ -177,27 +180,40 @@ with SHA256 where the source publishes checksums.
 ### SSH server
 
 ```bash
-android-linux ssh install    # Installs OpenSSH on port 2222
-android-linux ssh start
+android-linux ssh install    # Installs OpenSSH on port 2222 and auto-starts it
+android-linux ssh status     # Check if SSH server is running
+android-linux ssh start      # Start SSH server
+android-linux ssh stop       # Stop SSH server
 ```
 
-Port **2222** is used by default because Android often occupies port 22. Connect with:
+Port **2222** is used by default because Android often occupies port 22. Connect from your computer:
 
 ```bash
 ssh -p 2222 android@<device-ip>
 ```
-
-SSH binds to the device network only — it is never exposed publicly by default.
+*(Your device's IP can be found with `android-linux ip`)*
 
 ### Desktop (XFCE / LXQt) over VNC
 
 ```bash
-android-linux desktop install xfce
-android-linux desktop start
+android-linux desktop install xfce    # Installs XFCE + TigerVNC and auto-starts VNC
+android-linux desktop status          # Check if VNC server is running
+android-linux desktop start           # Start VNC server (:1, port 5901)
+android-linux desktop stop            # Stop VNC server
 ```
 
-Connect with any VNC viewer to `<device-ip>:5901`. Desktops are **not** installed
-automatically; the installer recommends based on available RAM and lets you choose.
+#### Connecting to the Desktop:
+
+1. **On your Android Phone:**
+   - Install **[AVNC](https://f-droid.org/packages/com.gaurav.avnc/)** (recommended on F-Droid) or **bVNC**.
+   - Connect to `127.0.0.1:5901` with your VNC password.
+
+2. **From your Mac / PC:**
+   - Run an SSH tunnel:
+     ```bash
+     ssh -p 2222 -L 5901:127.0.0.1:5901 android@<device-ip>
+     ```
+   - Open your VNC viewer (e.g. macOS Screen Sharing `vnc://localhost:5901` or RealVNC) and connect to `localhost:5901`.
 
 ---
 

@@ -70,10 +70,22 @@ Running `android-linux install` walks you through:
 For scripting, combine flags:
 
 ```bash
+# Minimal non-interactive install
 android-linux install --distro alpine --proot --path /data/local/android-linux --yes
+
+# Full Debian install with SSH and XFCE Desktop
+android-linux install --distro debian --proot --ssh --desktop xfce --yes
 ```
 
-Use `--dry-run` first to preview exactly what would happen without changing anything.
+Available CLI installation flags:
+- `--distro <name>`: `debian`, `debian-stable`, `ubuntu`, `alpine`, `archarm`
+- `--proot`: Non-rooted PRoot userspace mode
+- `--root`: Rooted native chroot mode
+- `--ssh` / `--no-ssh`: Auto-install and start OpenSSH server
+- `--desktop <de>`: `xfce`, `lxqt`, `none`
+- `--path <dir>`: Custom install directory
+- `--yes`: Assume yes to confirmations
+- `--dry-run`: Preview actions without downloading or modifying storage
 
 ## After install
 

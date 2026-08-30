@@ -3,7 +3,7 @@
 AndroidLinux can install an OpenSSH server inside the Linux guest so you can connect
 from another machine.
 
-## Install
+## Install & Auto-Start
 
 ```bash
 android-linux ssh install
@@ -15,29 +15,29 @@ The installer:
 - Sets the port to **2222** by default (port 22 is often used by Android).
 - Generates host keys.
 - Creates the `android` user and asks for a password (interactive).
+- **Automatically starts the SSH daemon (`sshd`) on completion.**
 
-## Start / stop
+## Manage
 
 ```bash
-android-linux ssh start
-android-linux ssh stop
+android-linux ssh status    # Check if sshd is running
+android-linux ssh start     # Start sshd
+android-linux ssh stop      # Stop sshd
 ```
 
 ## Connect
 
-The address is printed after install/start:
+Find your device's IP with `android-linux ip`, then connect:
 
 ```bash
-ssh -p 2222 android@192.168.1.45
+ssh -p 2222 android@<device-ip>
 ```
-
-Replace `192.168.1.45` with your device's IP (shown by `android-linux network`).
 
 ### Clients
 
-- **macOS / Linux:** built-in `ssh`.
-- **Windows:** PowerShell `ssh`, PuTTY, or Windows Terminal.
-- **Android:** Termux `ssh` or any SSH client app.
+- **macOS / Linux:** built-in `ssh` in Terminal.
+- **Windows:** PowerShell `ssh`, Windows Terminal, or PuTTY.
+- **Android:** Termux `ssh` or any SSH client app (e.g. JuiceSSH, ConnectBot).
 
 ## Security notes
 
