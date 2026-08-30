@@ -166,10 +166,10 @@ wizard_install() {
   # Step: choose mode
   local mode="${INSTALL_MODE:-$RECOMMENDED_MODE}"
   if is_interactive && [ -z "${OPT_MODE:-}" ]; then
-    printf '\nSelect installation mode:\n'
-    printf '  [1] Rooted chroot   %s\n' "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo '(recommended)' || echo '(needs root)')"
-    printf '  [2] PRoot           (no root required)\n'
-    printf '  [3] Termux Linux    (lightweight)\n'
+    printf '\n%s▸ Installation Mode%s\n\n' "${C_BOLD}" "${C_RESET}"
+    printf '  %s[1]%s Rooted chroot   %s\n' "$C_CYAN" "$C_RESET" "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo "${C_GREEN}(recommended)${C_RESET}" || echo "${C_DIM}(needs root)${C_RESET}")"
+    printf '  %s[2]%s PRoot           %s(no root required)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '  %s[3]%s Termux Linux    %s(lightweight)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
     local c; c=$(ask "Choose" "$(mode_choice_default)")
     case "$c" in
       1) mode="chroot" ;; 2) mode="proot" ;; 3) mode="termux" ;;
@@ -184,12 +184,12 @@ wizard_install() {
 
   # Step: choose distro
   if is_interactive && [ -z "$OPT_DISTRO" ]; then
-    printf '\nChoose Linux distribution:\n'
-    printf '  [1] Debian 13     (recommended)\n'
-    printf '  [2] Debian 12 (stable)\n'
-    printf '  [3] Ubuntu 24.04\n'
-    printf '  [4] Alpine Linux  (smallest)\n'
-    printf '  [5] Arch Linux ARM (advanced)\n'
+    printf '\n%s▸ Linux Distribution%s\n\n' "${C_BOLD}" "${C_RESET}"
+    printf '  %s[1]%s Debian 13      %s(recommended)%s\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET"
+    printf '  %s[2]%s Debian 12      %s(stable)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '  %s[3]%s Ubuntu 24.04\n' "$C_CYAN" "$C_RESET"
+    printf '  %s[4]%s Alpine Linux   %s(smallest)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '  %s[5]%s Arch Linux ARM %s(advanced)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
     local d; d=$(ask "Select" "1")
     case "$d" in
       1) DISTRO="debian" ;; 2) DISTRO="debian-stable" ;; 3) DISTRO="ubuntu" ;;
@@ -211,8 +211,10 @@ wizard_install() {
   local rec_de; rec_de=$(recommend_desktop)
   DESKTOP="none"
   if is_interactive; then
-    printf '\nDesktop environment (RAM %s GB, recommended: %s):\n' "$(mem_gb)" "$rec_de"
-    printf '  [1] None (headless)\n  [2] XFCE\n  [3] LXQt\n'
+    printf '\n%s▸ Desktop Environment%s  %sRAM: %s GB, recommended: %s%s\n\n' "${C_BOLD}" "${C_RESET}" "${C_DIM}" "$(mem_gb)" "$rec_de" "${C_RESET}"
+    printf '  %s[1]%s None %s(headless)%s\n' "$C_CYAN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '  %s[2]%s XFCE\n' "$C_CYAN" "$C_RESET"
+    printf '  %s[3]%s LXQt\n' "$C_CYAN" "$C_RESET"
     local de; de=$(ask "Select" "1")
     case "$de" in 2) DESKTOP="xfce" ;; 3) DESKTOP="lxqt" ;; *) DESKTOP="none" ;; esac
   fi
@@ -225,14 +227,14 @@ wizard_install() {
   local need; need=$(fs_estimate_bytes "$DISTRO" "$DESKTOP")
   detect_storage "$(dirname "$LINUX_BASE")"
   printf '\n'; hr
-  printf 'Summary:\n'
-  printf '  Distro:   %s\n' "$DISTRO_DISPLAY"
-  printf '  Mode:     %s\n' "$(mode_label "$INSTALL_MODE")"
-  printf '  Location: %s\n' "$LINUX_BASE"
-  printf '  Desktop:  %s\n' "$DESKTOP"
-  printf '  SSH:      %s\n' "$([ "$want_ssh" = 1 ] && echo yes || echo no)"
-  printf '  Required: ~%s\n' "$(human_bytes "$need")"
-  printf '  Available:%s\n' " $(human_bytes "${STORAGE_AVAIL_BYTES:-0}")"
+  printf '\n%s▸ Installation Summary%s\n\n' "${C_BOLD}" "${C_RESET}"
+  printf '  %sDistro:%s     %s\n' "$C_BOLD" "$C_RESET" "$DISTRO_DISPLAY"
+  printf '  %sMode:%s       %s\n' "$C_BOLD" "$C_RESET" "$(mode_label "$INSTALL_MODE")"
+  printf '  %sLocation:%s   %s\n' "$C_BOLD" "$C_RESET" "$LINUX_BASE"
+  printf '  %sDesktop:%s    %s\n' "$C_BOLD" "$C_RESET" "$DESKTOP"
+  printf '  %sSSH:%s        %s\n' "$C_BOLD" "$C_RESET" "$([ "$want_ssh" = 1 ] && echo yes || echo no)"
+  printf '  %sRequired:%s   ~%s\n' "$C_BOLD" "$C_RESET" "$(human_bytes "$need")"
+  printf '  %sAvailable:%s  %s\n\n' "$C_BOLD" "$C_RESET" "$(human_bytes "${STORAGE_AVAIL_BYTES:-0}")"
   hr
   if ! check_space "$need" "$(dirname "$LINUX_BASE")"; then
     log_warn "Available space may be insufficient for the selected options."
@@ -288,22 +290,26 @@ main_menu() {
   fi
   while true; do
     clear 2>/dev/null || true
+    banner
     detect_device; detect_android; detect_architecture; detect_root; detect_kernel
-    printf '%s\n' "+======================================+"
-    printf '|          %sAndroidLinux%s                |\n' "$C_BOLD" "$C_RESET"
-    printf '%s\n\n' "+======================================+"
-    printf 'Device: %s %s\n' "$DEV_MANUFACTURER" "$DEV_MODEL"
-    printf 'Android: %s   Arch: %s\n' "$ANDROID_RELEASE" "$(arch_label)"
-    printf 'Root: %s   Kernel: %s\n' "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo YES || echo NO)" "$KERNEL_VERSION"
-    printf 'Linux: %s   Status: %s\n\n' "${DISTRO:-none}" "$(is_installed && echo Installed || echo 'Not installed')"
-    printf '  [1] Enter Linux         [8] Restore\n'
-    printf '  [2] Start Linux         [9] System information\n'
-    printf '  [3] Stop Linux          [10] Doctor / Repair\n'
-    printf '  [4] Install Linux       [11] Settings / Config\n'
-    printf '  [5] Desktop             [12] Update\n'
-    printf '  [6] SSH                 [13] Uninstall\n'
-    printf '  [7] Backup              [Q] Quit\n\n'
-    local c; c=$(ask "Choose" "")
+    
+    printf ' %sDevice:%s  %-16s %sAndroid:%s %s\n' "${C_BOLD}" "${C_RESET}" "$DEV_MANUFACTURER $DEV_MODEL" "${C_BOLD}" "${C_RESET}" "$ANDROID_RELEASE"
+    printf ' %sArch:%s    %-16s %sKernel:%s  %s\n' "${C_BOLD}" "${C_RESET}" "$(arch_label)" "${C_BOLD}" "${C_RESET}" "$KERNEL_VERSION"
+    printf ' %sRoot:%s    %-16s %sStatus:%s  %s\n' "${C_BOLD}" "${C_RESET}" "$([ "${ROOT_AVAILABLE:-0}" = 1 ] && echo "${C_GREEN}YES${C_RESET}" || echo "${C_YELLOW}NO${C_RESET}")" "${C_BOLD}" "${C_RESET}" "$(is_installed && echo "${C_GREEN}Installed${C_RESET}" || echo "${C_DIM}Not installed${C_RESET}")"
+    [ -n "$DISTRO" ] && printf ' %sDistro:%s  %-16s\n' "${C_BOLD}" "${C_RESET}" "$DISTRO"
+    printf '\n'
+    hr
+    printf '\n'
+    printf '  %s[1]%s  Enter Linux         %s[8]%s  Restore\n' "$C_GREEN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '  %s[2]%s  Start Linux         %s[9]%s  System information\n' "$C_GREEN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '  %s[3]%s  Stop Linux          %s[10]%s Doctor / Repair\n' "$C_YELLOW" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '  %s[4]%s  Install Linux       %s[11]%s Settings / Config\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '  %s[5]%s  Desktop             %s[12]%s Update\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '  %s[6]%s  SSH                 %s[13]%s Uninstall\n' "$C_CYAN" "$C_RESET" "$C_RED" "$C_RESET"
+    printf '  %s[7]%s  Backup              %s[Q]%s  Quit\n\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET"
+    hr
+    printf '\n'
+    local c; c=$(ask "Choose an option" "")
     case "$c" in
       1) linux_enter || true ;;
       2) if linux_start; then log_ok "Started"; fi ;;
@@ -326,7 +332,8 @@ main_menu() {
 }
 
 menu_desktop() {
-  printf '  [1] Install  [2] Start  [3] Stop  [4] Status\n'
+  printf '\n%s--- Desktop Environment Management ---%s\n' "$C_BOLD" "$C_RESET"
+  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop  %s[4]%s Status\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_CYAN" "$C_RESET"
   local c; c=$(ask "Desktop" "")
   case "$c" in
     1) desktop_install "${DESKTOP:-xfce}" ;;
@@ -335,7 +342,8 @@ menu_desktop() {
 }
 
 menu_ssh() {
-  printf '  [1] Install  [2] Start  [3] Stop\n'
+  printf '\n%s--- SSH Server Management ---%s\n' "$C_BOLD" "$C_RESET"
+  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET"
   local c; c=$(ask "SSH" "")
   case "$c" in
     1) ssh_install "${SSH_PORT:-2222}" ;;

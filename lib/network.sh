@@ -57,17 +57,48 @@ configure_rootfs_dns() {
     log_info "[dry-run] would write $rootfs/etc/resolv.conf (nameserver $dns)"
     return 0
   fi
-  mkdir -p "$rootfs/etc" 2>/dev/null || true
+  
+  # Create /etc directory with appropriate permissions.
+  # In chroot mode, rootfs is owned by root, so use run_as_root.
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root mkdir -p "$rootfs/etc" 2>/dev/null || true
+  else
+    mkdir -p "$rootfs/etc" 2>/dev/null || true
+  fi
+  
   # Debian/Ubuntu ship etc/resolv.conf as a symlink (e.g. -> /run/systemd/...).
   # Redirecting would follow the dangling link and fail, so replace it with a
   # regular file. Only this single file inside the rootfs is removed.
   if [ -L "$rootfs/etc/resolv.conf" ]; then
-    rm -f "$rootfs/etc/resolv.conf" 2>/dev/null || true
+    if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+      run_as_root rm -f "$rootfs/etc/resolv.conf" 2>/dev/null || true
+    else
+      rm -f "$rootfs/etc/resolv.conf" 2>/dev/null || true
+    fi
   fi
+  
+  # Write resolv.conf with root if needed.
+  local tmp_resolv
+  tmp_resolv=$(mktemp 2>/dev/null || printf '/tmp/resolv.conf.%s' "$$")
   {
     printf 'nameserver %s\n' "$dns"
     printf 'nameserver 8.8.8.8\n'
-  } >"$rootfs/etc/resolv.conf" 2>/dev/null || {
-    log_warn "Could not write resolv.conf into rootfs"; return 1; }
+  } >"$tmp_resolv" || { log_warn "Could not create temporary resolv.conf"; return 1; }
+  
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    if ! run_as_root cp "$tmp_resolv" "$rootfs/etc/resolv.conf" 2>/dev/null; then
+      rm -f "$tmp_resolv" 2>/dev/null
+      log_warn "Could not write resolv.conf into rootfs"
+      return 1
+    fi
+  else
+    if ! cp "$tmp_resolv" "$rootfs/etc/resolv.conf" 2>/dev/null; then
+      rm -f "$tmp_resolv" 2>/dev/null
+      log_warn "Could not write resolv.conf into rootfs"
+      return 1
+    fi
+  fi
+  
+  rm -f "$tmp_resolv" 2>/dev/null
   log_debug "wrote DNS ($dns) into $rootfs/etc/resolv.conf"
 }
