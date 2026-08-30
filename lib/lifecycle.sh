@@ -70,7 +70,20 @@ guest_pkg_install() {
   configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
   case "${DISTRO_FN:-debian}" in
     debian|ubuntu)
-      linux_run "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --fix-missing $pkgs" ;;
+      # Bootstrap the keyring if trusted.gpg.d is empty (fresh rootfs tarball
+      # does not include keyring files). Use --allow-unauthenticated only for
+      # this one-time bootstrap so subsequent apt calls verify signatures.
+      linux_run "export DEBIAN_FRONTEND=noninteractive; \
+        if [ ! -f /etc/apt/trusted.gpg ] && \
+           [ -z \"\$(ls /etc/apt/trusted.gpg.d/ 2>/dev/null)\" ]; then \
+          mkdir -p /etc/apt/trusted.gpg.d; \
+          apt-get update -o Acquire::AllowInsecureRepositories=true \
+                         -o APT::Get::AllowUnauthenticated=true 2>/dev/null || true; \
+          apt-get install -y --allow-unauthenticated --fix-missing \
+                          ${DISTRO_FN:-debian}-archive-keyring 2>/dev/null || true; \
+        fi; \
+        apt-get update && apt-get install -y --fix-missing $pkgs"
+      ;;
     alpine)
       linux_run "apk update && apk add $pkgs" ;;
     archarm)

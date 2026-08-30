@@ -307,9 +307,13 @@ banner() {
 # without creating temporary files on host (avoids permission issues under su).
 #
 # Strategy for chroot+root mode (rootfs is root-owned):
-#   1. Try tee via run_as_root (avoids shell-redirect ownership problem).
-#   2. Try base64-decode pipeline via run_as_root sh -c (handles all content).
-#   3. Fall back to run_as_root sh -c printf redirect (last resort).
+#   NOTE: 'su -c' does NOT inherit stdin from the caller, so any method that
+#   pipes into run_as_root (e.g. printf | run_as_root tee) gets empty stdin.
+#   All content must travel inside the sh -c command string itself.
+#
+#   1. base64-encode content on the host; decode inside a root sh -c.
+#      Both GNU (base64 -d) and BSD (base64 -D) flags are tried.
+#   2. shell_quote the content and printf inside a root sh -c (fallback).
 # For proot / non-root mode the current user owns the rootfs, so a plain
 # redirect works fine.
 write_rootfs_file() {
@@ -317,17 +321,13 @@ write_rootfs_file() {
   local dir; dir=$(dirname "$target")
   if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
-    # Method 1: tee — run_as_root owns the write, no redirect ownership issue.
-    if printf '%s\n' "$content" | run_as_root tee "$target" >/dev/null 2>/dev/null; then
-      return 0
-    fi
-    # Method 2: base64 pipeline inside a root shell.
+    # Method 1: base64 round-trip entirely inside the root shell (su-safe).
     local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
     if [ -n "$b64" ]; then
-      if run_as_root sh -c "echo '$b64' | base64 -d > '$target'" 2>/dev/null; then return 0; fi
-      if run_as_root sh -c "echo '$b64' | base64 -D > '$target'" 2>/dev/null; then return 0; fi
+      if run_as_root sh -c "printf '%s' '$b64' | base64 -d > '$target'" 2>/dev/null; then return 0; fi
+      if run_as_root sh -c "printf '%s' '$b64' | base64 -D > '$target'" 2>/dev/null; then return 0; fi
     fi
-    # Method 3: printf inside a root shell.
+    # Method 2: printf + shell_quote inside a root shell.
     local qcontent; qcontent=$(shell_quote "$content")
     run_as_root sh -c "printf '%s\n' $qcontent > '$target'" 2>/dev/null || return 1
   else
