@@ -312,29 +312,55 @@ distro_extract() {
     extractor="proot --link2symlink tar"
   fi
 
-  # Extract via an explicit decompressor piped into tar. This works with GNU,
-  # busybox, and toybox tar alike (no reliance on tar auto-detecting the codec).
-  # tar_is_safe above has already confirmed the needed decompressor is present.
-  #
-  # tar's exit status is captured, not treated as automatically fatal: on Android
-  # tar commonly exits 1 for harmless reasons (device nodes, xattrs, or SELinux
-  # blocking attribute changes) even when the filesystem extracted correctly. We
-  # instead verify success by checking that the rootfs is actually usable.
-  local rc=0
-  case "$archive" in
-    *.zst)
-      # shellcheck disable=SC2086
-      zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
-    *.xz|*.txz)
-      # shellcheck disable=SC2086
-      xz -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
-    *.gz|*.tgz)
-      # shellcheck disable=SC2086
-      gzip -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
-    *)
-      # shellcheck disable=SC2086
-      run_extract $extractor $taropts -x -C "$rootfs" -f "$archive" || rc=$? ;;
-  esac
+  # Extract the rootfs. tar's exit status is captured, not treated as
+  # automatically fatal: on Android tar commonly exits 1 for harmless reasons
+  # (device nodes, xattrs, SELinux) even when the filesystem extracted correctly;
+  # success is verified below by checking the rootfs is usable.
+  local rc=0 tmptar=""
+  local use_su=0
+  [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ] && use_su=1
+
+  if [ "$use_su" = 1 ]; then
+    # The extractor runs as root via `su -c`. Piping the decompressed stream into
+    # `su -c tar` is unreliable - the stdin pipe closes and the decompressor dies
+    # with SIGPIPE (exit 141). Decompress to a temporary plain-tar file first and
+    # extract from that file, so no pipe crosses the su boundary.
+    local dldir input
+    dldir=$(dirname "$archive")
+    input="$archive"
+    case "$archive" in
+      *.zst)
+        tmptar="$dldir/.extract.$$.tar"
+        zstd -dc "$archive" > "$tmptar" || { log_error "zstd decompression failed"; rm -f "$tmptar" 2>/dev/null; return 1; }
+        input="$tmptar" ;;
+      *.xz|*.txz)
+        tmptar="$dldir/.extract.$$.tar"
+        xz -dc "$archive" > "$tmptar" || { log_error "xz decompression failed"; rm -f "$tmptar" 2>/dev/null; return 1; }
+        input="$tmptar" ;;
+      *.gz|*.tgz)
+        tmptar="$dldir/.extract.$$.tar"
+        gzip -dc "$archive" > "$tmptar" || { log_error "gzip decompression failed"; rm -f "$tmptar" 2>/dev/null; return 1; }
+        input="$tmptar" ;;
+    esac
+    # shellcheck disable=SC2086
+    run_extract $extractor $taropts -x -C "$rootfs" -f "$input" || rc=$?
+    [ -n "$tmptar" ] && rm -f "$tmptar" 2>/dev/null
+  else
+    case "$archive" in
+      *.zst)
+        # shellcheck disable=SC2086
+        zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
+      *.xz|*.txz)
+        # shellcheck disable=SC2086
+        xz -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
+      *.gz|*.tgz)
+        # shellcheck disable=SC2086
+        gzip -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
+      *)
+        # shellcheck disable=SC2086
+        run_extract $extractor $taropts -x -C "$rootfs" -f "$archive" || rc=$? ;;
+    esac
+  fi
 
   if [ "$rc" -ge 2 ]; then
     error_report "Extraction failed (tar exit $rc)" \

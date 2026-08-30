@@ -15,7 +15,7 @@ fi
 ANDROID_LINUX_COMMON_LOADED=1
 
 # --- Version ----------------------------------------------------------------
-ANDROID_LINUX_VERSION="1.2.2"
+ANDROID_LINUX_VERSION="1.2.3"
 ANDROID_LINUX_NAME="AndroidLinux"
 
 # --- Base directories -------------------------------------------------------
