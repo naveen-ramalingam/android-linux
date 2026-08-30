@@ -18,10 +18,20 @@ ssh_install() {
   SSH_PORT="$port"; config_set SSH_PORT "$port"
   LINUX_USER="$user"; config_set LINUX_USER "$user"
   # Configure sshd to use the non-conflicting port, permit password auth, root login, and generate host keys.
-  linux_run "mkdir -p /etc/ssh /run/sshd /var/run/sshd /var/empty /tmp"
+  linux_run "mkdir -p /etc/ssh /etc/ssh/sshd_config.d /run/sshd /var/run/sshd /var/empty /tmp"
+  local sshd_override="Port ${port}
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+PubkeyAuthentication yes
+UsePAM no
+"
+  write_rootfs_file "$LINUX_ROOT/etc/ssh/sshd_config.d/99-android.conf" "$sshd_override" || true
   linux_run "sed -i 's/^[#]*Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
   linux_run "sed -i 's/^[#]*PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PermitRootLogin yes\n' >> /etc/ssh/sshd_config"
   linux_run "sed -i 's/^[#]*PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PasswordAuthentication yes\n' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^[#]*KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'KbdInteractiveAuthentication yes\n' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^[#]*UsePAM .*/UsePAM no/' /etc/ssh/sshd_config 2>/dev/null || printf 'UsePAM no\n' >> /etc/ssh/sshd_config"
   linux_run "ssh-keygen -A 2>/dev/null || true"
 
   # Create the Linux user if missing.
@@ -90,9 +100,11 @@ ssh_is_running() {
 }
 
 ssh_start() {
-  local port="${SSH_PORT:-2222}"
+  local port="${1:-${SSH_PORT:-2222}}" user="${2:-${LINUX_USER:-android}}"
   validate_port "$port" || { log_error "Invalid SSH port: $port"; return 1; }
   log_info "Starting sshd on port ${port}..."
+  # Kill any existing sshd first so configuration changes take effect
+  linux_run "pkill -x sshd 2>/dev/null || true"
   linux_run "mkdir -p /run/sshd /var/run/sshd /var/empty /etc/ssh"
   linux_run "ssh-keygen -A 2>/dev/null || true"
   case "${DISTRO_FN:-debian}" in
@@ -102,7 +114,7 @@ ssh_start() {
   if ssh_is_running; then
     log_ok "sshd is running on port ${port}"
   fi
-  ssh_connection_info "$port" "${LINUX_USER:-android}"
+  ssh_connection_info "$port" "$user"
 }
 
 ssh_stop() { linux_run "pkill -x sshd 2>/dev/null || true"; log_ok "sshd stopped"; }
