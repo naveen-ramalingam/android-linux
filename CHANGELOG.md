@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-30
+
+### Fixed
+- Extraction no longer aborts when `tar` exits with status 1. On Android, `tar`
+  commonly exits 1 for harmless reasons (device nodes, extended attributes, or
+  SELinux blocking attribute changes) even though the filesystem extracted
+  correctly. The installer now treats exit 1 as a warning and verifies success by
+  checking the rootfs is usable (`/bin/sh` present). Exit >= 2 is still fatal.
+  This fixes installs that failed at the final step with
+  "tar reported errors ... Refusing"/aborted despite a valid rootfs.
+
 ## [1.2.0] - 2026-08-30
 
 ### Added

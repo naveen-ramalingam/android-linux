@@ -315,24 +315,46 @@ distro_extract() {
   # Extract via an explicit decompressor piped into tar. This works with GNU,
   # busybox, and toybox tar alike (no reliance on tar auto-detecting the codec).
   # tar_is_safe above has already confirmed the needed decompressor is present.
+  #
+  # tar's exit status is captured, not treated as automatically fatal: on Android
+  # tar commonly exits 1 for harmless reasons (device nodes, xattrs, or SELinux
+  # blocking attribute changes) even when the filesystem extracted correctly. We
+  # instead verify success by checking that the rootfs is actually usable.
+  local rc=0
   case "$archive" in
     *.zst)
       # shellcheck disable=SC2086
-      zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
-        || { extract_warn; return 1; } ;;
+      zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
     *.xz|*.txz)
       # shellcheck disable=SC2086
-      xz -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
-        || { extract_warn; return 1; } ;;
+      xz -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
     *.gz|*.tgz)
       # shellcheck disable=SC2086
-      gzip -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
-        || { extract_warn; return 1; } ;;
+      gzip -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - || rc=$? ;;
     *)
       # shellcheck disable=SC2086
-      run_extract $extractor $taropts -x -C "$rootfs" -f "$archive" \
-        || { extract_warn; return 1; } ;;
+      run_extract $extractor $taropts -x -C "$rootfs" -f "$archive" || rc=$? ;;
   esac
+
+  if [ "$rc" -ge 2 ]; then
+    error_report "Extraction failed (tar exit $rc)" \
+      "The archive may be corrupt or the filesystem rejected the writes." \
+      "Check free space, run 'android-linux doctor', then retry."
+    return 1
+  fi
+  if [ "$rc" -eq 1 ]; then
+    log_warn "tar reported minor issues (exit 1) - usually harmless on Android"
+    log_warn "(device nodes, xattrs, or SELinux). Verifying the rootfs..."
+  fi
+
+  # The real success test: did we get a usable rootfs?
+  if [ ! -e "$rootfs/bin/sh" ] && [ ! -e "$rootfs/bin/busybox" ]; then
+    error_report "Extraction did not produce a usable rootfs (no /bin/sh)" \
+      "The archive may be truncated/corrupt, or extraction was blocked (tar exit $rc)." \
+      "Check free space and permissions, run 'android-linux doctor', then retry."
+    return 1
+  fi
+
   fs_init_rootfs_tree "$rootfs"
   state_set CONFIGURING
   log_ok "Rootfs extracted to $rootfs"
@@ -345,9 +367,4 @@ run_extract() {
   else
     "$@"
   fi
-}
-
-extract_warn() {
-  log_warn "tar reported errors (often harmless: device nodes / xattrs under Android)."
-  log_warn "Run 'android-linux doctor' to verify the rootfs is usable."
 }

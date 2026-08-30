@@ -75,4 +75,27 @@ else
   TEST_FAIL=$((TEST_FAIL+1)); printf '  [FAIL] pkg not invoked with xz-utils/proot\n'
 fi
 
+# Regression: tar exiting 1 (harmless Android warnings) must NOT abort the
+# install when the rootfs is usable. Simulate by overriding run_extract to
+# create a usable rootfs and return 1.
+if (
+  EXT="$TEST_TMP/extsim"; mkdir -p "$EXT"
+  tar -czf "$EXT/root.tar.gz" -C "$TEST_TMP/tarwork" work/file.txt 2>/dev/null
+  # shellcheck disable=SC2329
+  run_extract() {
+    local target="" prev="" a
+    for a in "$@"; do [ "$prev" = "-C" ] && target="$a"; prev="$a"; done
+    if [ -n "$target" ]; then mkdir -p "$target/bin"; printf x >"$target/bin/sh"; fi
+    cat >/dev/null 2>&1 || true
+    return 1
+  }
+  LINUX_BASE="$EXT"
+  distro_extract "$EXT/root.tar.gz" "$EXT/rootfs" >/dev/null 2>&1 \
+    && [ -e "$EXT/rootfs/bin/sh" ]
+); then
+  TEST_PASS=$((TEST_PASS+1)); printf '  [PASS] tar exit 1 with usable rootfs does not abort install\n'
+else
+  TEST_FAIL=$((TEST_FAIL+1)); printf '  [FAIL] tar exit 1 wrongly aborted a usable extraction\n'
+fi
+
 test_summary
