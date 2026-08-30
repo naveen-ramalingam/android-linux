@@ -79,7 +79,7 @@ guest_pkg_install() {
       linux_run "export DEBIAN_FRONTEND=noninteractive; \
         mkdir -p /etc/apt/trusted.gpg.d; \
         if [ -f /etc/nsswitch.conf ]; then \
-          sed -i 's/ systemd//g; s/[[:space:]]*\$//' /etc/nsswitch.conf; \
+          sed -i 's/ systemd//g' /etc/nsswitch.conf; \
         fi; \
         _need_keyring=0; \
         [ -z \"\$(ls /etc/apt/trusted.gpg.d/ 2>/dev/null)\" ] && \
