@@ -307,13 +307,11 @@ banner() {
 # without creating temporary files on host (avoids permission issues under su).
 #
 # Strategy for chroot+root mode (rootfs is root-owned):
-#   NOTE: 'su -c' does NOT inherit stdin from the caller, so any method that
-#   pipes into run_as_root (e.g. printf | run_as_root tee) gets empty stdin.
-#   All content must travel inside the sh -c command string itself.
-#
-#   1. base64-encode content on the host; decode inside a root sh -c.
-#      Both GNU (base64 -d) and BSD (base64 -D) flags are tried.
-#   2. shell_quote the content and printf inside a root sh -c (fallback).
+#   'su -c "..."' does NOT inherit stdin, so we cannot pipe into run_as_root.
+#   We write to a host-side temp file (host user owns LINUX_BASE, so this
+#   always succeeds), then use run_as_root cp to place it at the target path.
+#   The temp file is cleaned up regardless of success or failure.
+#   Fallback: base64 round-trip embedded entirely in the su subshell string.
 # For proot / non-root mode the current user owns the rootfs, so a plain
 # redirect works fine.
 write_rootfs_file() {
@@ -321,15 +319,27 @@ write_rootfs_file() {
   local dir; dir=$(dirname "$target")
   if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
-    # Method 1: base64 round-trip entirely inside the root shell (su-safe).
+    # Method 1: write to a host-owned temp file, then cp as root.
+    # The temp dir is under LINUX_BASE which the Termux user owns.
+    local tmpdir="${LINUX_BASE:-${ANDROID_LINUX_HOME}}"
+    local tmp="${tmpdir}/.wrf_tmp_$$"
+    if printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
+      if run_as_root cp "$tmp" "$target" 2>/dev/null; then
+        rm -f "$tmp" 2>/dev/null || true
+        return 0
+      fi
+      rm -f "$tmp" 2>/dev/null || true
+    fi
+    # Method 2: base64 round-trip inside the su subshell.
+    # b64 uses only [A-Za-z0-9+/=] — safe to embed in a double-quoted sh -c.
     local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
     if [ -n "$b64" ]; then
-      if run_as_root sh -c "printf '%s' '$b64' | base64 -d > '$target'" 2>/dev/null; then return 0; fi
-      if run_as_root sh -c "printf '%s' '$b64' | base64 -D > '$target'" 2>/dev/null; then return 0; fi
+      if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -d > \"$target\"" 2>/dev/null; then return 0; fi
+      if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -D > \"$target\"" 2>/dev/null; then return 0; fi
     fi
-    # Method 2: printf + shell_quote inside a root shell.
+    # Method 3: shell_quote content, printf inside a root shell.
     local qcontent; qcontent=$(shell_quote "$content")
-    run_as_root sh -c "printf '%s\n' $qcontent > '$target'" 2>/dev/null || return 1
+    run_as_root sh -c "printf '%s\n' $qcontent > \"$target\"" 2>/dev/null || return 1
   else
     mkdir -p "$dir" 2>/dev/null || true
     printf '%s\n' "$content" > "$target" 2>/dev/null || return 1

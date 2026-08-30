@@ -70,17 +70,32 @@ guest_pkg_install() {
   configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
   case "${DISTRO_FN:-debian}" in
     debian|ubuntu)
-      # Bootstrap the keyring if trusted.gpg.d is empty (fresh rootfs tarball
-      # does not include keyring files). Use --allow-unauthenticated only for
-      # this one-time bootstrap so subsequent apt calls verify signatures.
+      # Fresh rootfs tarballs ship no GPG keyrings in /etc/apt/trusted.gpg.d/.
+      # The debian-archive-keyring postinst calls gpg to generate them, but gpg
+      # fails in a minimal chroot (no /proc, no home dir, etc.).
+      # Fix: after installing the keyring package, directly copy the .gpg files
+      # from /usr/share/keyrings/ into /etc/apt/trusted.gpg.d/ — exactly what
+      # the postinst does — then re-run apt-get update with signatures enabled.
       linux_run "export DEBIAN_FRONTEND=noninteractive; \
-        if [ ! -f /etc/apt/trusted.gpg ] && \
-           [ -z \"\$(ls /etc/apt/trusted.gpg.d/ 2>/dev/null)\" ]; then \
-          mkdir -p /etc/apt/trusted.gpg.d; \
+        mkdir -p /etc/apt/trusted.gpg.d; \
+        _need_keyring=0; \
+        [ -z \"\$(ls /etc/apt/trusted.gpg.d/ 2>/dev/null)\" ] && \
+          [ ! -f /etc/apt/trusted.gpg ] && _need_keyring=1; \
+        if [ \"\$_need_keyring\" = 1 ]; then \
           apt-get update -o Acquire::AllowInsecureRepositories=true \
-                         -o APT::Get::AllowUnauthenticated=true 2>/dev/null || true; \
+            -o APT::Get::AllowUnauthenticated=true 2>/dev/null || true; \
           apt-get install -y --allow-unauthenticated --fix-missing \
-                          ${DISTRO_FN:-debian}-archive-keyring 2>/dev/null || true; \
+            ${DISTRO_FN:-debian}-archive-keyring 2>/dev/null || true; \
+          find /usr/share/keyrings -name '*.gpg' 2>/dev/null | \
+            while IFS= read -r _kf; do \
+              cp -f \"\$_kf\" /etc/apt/trusted.gpg.d/ 2>/dev/null || true; \
+            done; \
+          find /usr/share/keyrings -name '*.asc' 2>/dev/null | \
+            while IFS= read -r _kf; do \
+              _dst=\"/etc/apt/trusted.gpg.d/\$(basename \"\${_kf%.asc}\").gpg\"; \
+              gpg --dearmor < \"\$_kf\" > \"\$_dst\" 2>/dev/null || \
+                cp -f \"\$_kf\" /etc/apt/trusted.gpg.d/ 2>/dev/null || true; \
+            done; \
         fi; \
         apt-get update && apt-get install -y --fix-missing $pkgs"
       ;;
