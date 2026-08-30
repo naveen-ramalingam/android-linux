@@ -162,12 +162,44 @@ validate_name() {
 }
 
 # --- Archive safety ---------------------------------------------------------
-# tar_list: list members of an archive (handles gz/xz/zst by extension).
+# decompressor_available: echo the command needed to read <archive>, or "" if
+# none is required. Returns 1 if the needed decompressor is missing.
+archive_decompressor() {
+  local archive="$1"
+  case "$archive" in
+    *.zst)        printf 'zstd' ;;
+    *.xz|*.txz)   printf 'xz' ;;
+    *.gz|*.tgz)   printf 'gzip' ;;
+    *.bz2)        printf 'bzip2' ;;
+    *)            printf '' ;;
+  esac
+}
+
+# decompressor_ready: true if the decompressor required by <archive> is present.
+# Prints an actionable hint when it is missing.
+decompressor_ready() {
+  local archive="$1" tool
+  tool=$(archive_decompressor "$archive")
+  [ -n "$tool" ] || return 0
+  if have_cmd "$tool"; then return 0; fi
+  case "$tool" in
+    xz)   log_error "'xz' is required for $(basename "$archive"). In Termux: pkg install xz-utils" ;;
+    zstd) log_error "'zstd' is required for $(basename "$archive"). In Termux: pkg install zstd" ;;
+    gzip) log_error "'gzip' is required for $(basename "$archive")." ;;
+    bzip2) log_error "'bzip2' is required for $(basename "$archive"). In Termux: pkg install bzip2" ;;
+  esac
+  return 1
+}
+
+# tar_list: list members of an archive using an explicit decompressor pipeline,
+# so listing succeeds exactly when extraction can.
 tar_list() {
   local archive="$1"
   case "$archive" in
-    *.zst) have_cmd zstd || return 1; zstd -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
-    *.gz|*.tgz) tar -tzf "$archive" 2>/dev/null ;;
+    *.zst) zstd -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
+    *.xz|*.txz) xz -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
+    *.gz|*.tgz) gzip -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
+    *.bz2) bzip2 -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
     *) tar -tf "$archive" 2>/dev/null ;;
   esac
 }
@@ -176,8 +208,11 @@ tar_list() {
 # Fail-closed: if members cannot be listed, the archive is treated as unsafe.
 tar_is_safe() {
   local archive="$1" listing bad
+  # First confirm the decompressor exists, so a missing tool is reported as a
+  # clear, fixable problem rather than "corrupt/unsafe".
+  decompressor_ready "$archive" || return 1
   listing=$(tar_list "$archive") || {
-    log_error "Cannot list archive members (unsupported/corrupt): $(basename "$archive")"
+    log_error "Cannot list archive members (corrupt or unsupported format): $(basename "$archive")"
     return 1
   }
   bad=$(printf '%s\n' "$listing" | grep -E '(^/|(^|/)\.\.(/|$))' | head -5)

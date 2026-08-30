@@ -58,6 +58,12 @@ configure_rootfs_dns() {
     return 0
   fi
   mkdir -p "$rootfs/etc" 2>/dev/null || true
+  # Debian/Ubuntu ship etc/resolv.conf as a symlink (e.g. -> /run/systemd/...).
+  # Redirecting would follow the dangling link and fail, so replace it with a
+  # regular file. Only this single file inside the rootfs is removed.
+  if [ -L "$rootfs/etc/resolv.conf" ]; then
+    rm -f "$rootfs/etc/resolv.conf" 2>/dev/null || true
+  fi
   {
     printf 'nameserver %s\n' "$dns"
     printf 'nameserver 8.8.8.8\n'

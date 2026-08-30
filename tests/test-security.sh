@@ -5,6 +5,7 @@
 . "$(dirname "$0")/helpers.sh"
 . "$LIB_DIR/common.sh"
 . "$LIB_DIR/distro.sh"
+. "$LIB_DIR/network.sh"
 
 printf 'Security hardening\n'
 
@@ -59,6 +60,27 @@ else
   printf '  [PASS] traversal-craft unsupported by this tar (skipped)\n'; TEST_PASS=$((TEST_PASS+1))
 fi
 
+# --- .tar.xz handling (regression for on-device failure) --------------------
+if have_cmd xz; then
+  tar -cJf "$WORK/xz.tar.xz" -C "$WORK" work/file.txt 2>/dev/null
+  assert_true tar_is_safe "$WORK/xz.tar.xz" "benign .tar.xz accepted when xz present"
+
+  # Simulate a missing xz decoder: restricted PATH without xz must be refused.
+  NOXZ="$TEST_TMP/noxzbin"; mkdir -p "$NOXZ"
+  for t in tar gzip grep sed head basename cat mkdir date sh bash; do
+    _p=$(command -v "$t" 2>/dev/null) && ln -sf "$_p" "$NOXZ/$t"
+  done
+  # shellcheck disable=SC2016
+  if env PATH="$NOXZ" bash -c '. "$1"; decompressor_ready "$2"' _ "$LIB_DIR/common.sh" "$WORK/xz.tar.xz" 2>/dev/null; then
+    printf '  [FAIL] missing xz should be refused\n'; TEST_FAIL=$((TEST_FAIL+1))
+  else
+    printf '  [PASS] missing xz decoder refused with actionable hint\n'; TEST_PASS=$((TEST_PASS+1))
+  fi
+else
+  printf '  [PASS] xz not installed locally (xz-path skipped)\n'; TEST_PASS=$((TEST_PASS+1))
+  printf '  [PASS] xz not installed locally (missing-tool skipped)\n'; TEST_PASS=$((TEST_PASS+1))
+fi
+
 # --- safe_remove symlink escape --------------------------------------------
 SB="$TEST_TMP/sbase"; mkdir -p "$SB/sub"
 echo keep > "$SB/sub/keep.txt"
@@ -66,6 +88,12 @@ ln -s /etc "$SB/sub/escape"
 assert_false safe_remove "$SB/sub/escape" "$SB" "safe_remove refuses symlink escaping to /etc"
 assert_true  bash -c "[ -e /etc ]" "target of escaped symlink untouched"
 assert_true  safe_remove "$SB/sub" "$SB" "safe_remove still removes normal subdir"
+
+# --- configure_rootfs_dns symlink handling (Debian/Ubuntu regression) -------
+DNSROOT="$TEST_TMP/dnsroot"; mkdir -p "$DNSROOT/etc"
+ln -s /nonexistent/resolv-target "$DNSROOT/etc/resolv.conf"
+assert_true configure_rootfs_dns "$DNSROOT" "1.1.1.1" "DNS write over dangling resolv.conf symlink succeeds"
+assert_true bash -c "[ -f '$DNSROOT/etc/resolv.conf' ] && [ ! -L '$DNSROOT/etc/resolv.conf' ]" "resolv.conf replaced with a regular file"
 
 # --- verify_sha256 fail-closed ---------------------------------------------
 SAMPLE="$TEST_TMP/sample.bin"; echo data > "$SAMPLE"

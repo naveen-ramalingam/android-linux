@@ -36,25 +36,25 @@ restore_from() {
   safe_remove "$LINUX_ROOT" "$LINUX_BASE" || return 1
   local parent; parent=$(dirname "$LINUX_BASE")
   log_info "Restoring into $parent ..."
+  local numopt=""
+  tar --help 2>&1 | grep -q 'numeric-owner' && numopt="--numeric-owner"
   case "$archive" in
     *.zst)
-      have_cmd zstd || { log_error "zstd required to restore this archive"; return 1; }
-      zstd -dc "$archive" | tar --numeric-owner -C "$parent" -xf - || { log_error "Restore failed"; return 1; } ;;
+      # shellcheck disable=SC2086
+      zstd -dc "$archive" | tar $numopt -C "$parent" -xf - || { log_error "Restore failed"; return 1; } ;;
+    *.xz|*.txz)
+      # shellcheck disable=SC2086
+      xz -dc "$archive" | tar $numopt -C "$parent" -xf - || { log_error "Restore failed"; return 1; } ;;
     *.gz|*.tgz)
-      tar --numeric-owner -C "$parent" -xzf "$archive" || { log_error "Restore failed"; return 1; } ;;
+      # shellcheck disable=SC2086
+      gzip -dc "$archive" | tar $numopt -C "$parent" -xf - || { log_error "Restore failed"; return 1; } ;;
     *)
-      tar --numeric-owner -C "$parent" -xf "$archive" || { log_error "Restore failed"; return 1; } ;;
+      # shellcheck disable=SC2086
+      tar $numopt -C "$parent" -xf "$archive" || { log_error "Restore failed"; return 1; } ;;
   esac
   log_ok "Restore complete."
 }
 
 restore_list() {
-  local archive="$1"
-  case "$archive" in
-    *.zst)
-      have_cmd zstd || return 1
-      zstd -dc "$archive" 2>/dev/null | tar -tf - 2>/dev/null ;;
-    *.gz|*.tgz) tar -tzf "$archive" 2>/dev/null ;;
-    *) tar -tf "$archive" 2>/dev/null ;;
-  esac
+  tar_list "$1"
 }

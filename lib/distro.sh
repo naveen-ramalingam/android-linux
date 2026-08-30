@@ -204,21 +204,26 @@ distro_extract() {
     extractor="proot --link2symlink tar"
   fi
 
-  # Choose decompressor by extension; tar auto-detects with -a when supported.
+  # Extract via an explicit decompressor piped into tar. This works with GNU,
+  # busybox, and toybox tar alike (no reliance on tar auto-detecting the codec).
+  # tar_is_safe above has already confirmed the needed decompressor is present.
   case "$archive" in
     *.zst)
-      if have_cmd zstd; then
-        # shellcheck disable=SC2086
-        zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
-          || { extract_warn; return 1; }
-      else
-        log_error "zstd required to extract $archive"; return 1
-      fi ;;
+      # shellcheck disable=SC2086
+      zstd -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
+        || { extract_warn; return 1; } ;;
+    *.xz|*.txz)
+      # shellcheck disable=SC2086
+      xz -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
+        || { extract_warn; return 1; } ;;
+    *.gz|*.tgz)
+      # shellcheck disable=SC2086
+      gzip -dc "$archive" | run_extract $extractor $taropts -x -C "$rootfs" -f - \
+        || { extract_warn; return 1; } ;;
     *)
       # shellcheck disable=SC2086
       run_extract $extractor $taropts -x -C "$rootfs" -f "$archive" \
-        || { extract_warn; return 1; }
-      ;;
+        || { extract_warn; return 1; } ;;
   esac
   fs_init_rootfs_tree "$rootfs"
   state_set CONFIGURING
