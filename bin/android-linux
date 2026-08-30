@@ -86,6 +86,8 @@ Options:
   --yes           Assume "yes" to confirmations
   --root          Force rooted chroot mode
   --proot         Force PRoot mode
+  --ssh           Auto-install and start OpenSSH server
+  --no-ssh        Skip OpenSSH installation
   --distro <name> debian | debian-stable | ubuntu | alpine | archarm
   --path <dir>    Installation base directory
 
@@ -106,6 +108,8 @@ parse_global_opts() {
       --yes|-y) ANDROID_LINUX_ASSUME_YES=1 ;;
       --root) OPT_MODE="chroot" ;;
       --proot) OPT_MODE="proot" ;;
+      --ssh) OPT_SSH=1 ;;
+      --no-ssh) OPT_SSH=0 ;;
       --distro) shift; OPT_DISTRO="${1:-}" ;;
       --distro=*) OPT_DISTRO="${1#*=}" ;;
       --path) shift; OPT_PATH="${1:-}" ;;
@@ -122,6 +126,7 @@ parse_global_opts() {
 # --- Setup base + config ----------------------------------------------------
 init_runtime() {
   config_load
+  OPT_SSH="${OPT_SSH:-}"
   # Resolve base: CLI flag > config > env default.
   if [ -n "$OPT_PATH" ]; then LINUX_BASE="$OPT_PATH"; fi
   if [ -z "${LINUX_BASE:-}" ]; then
@@ -222,8 +227,10 @@ wizard_install() {
     case "$de" in 2) DESKTOP="xfce" ;; 3) DESKTOP="lxqt" ;; *) DESKTOP="none" ;; esac
   fi
   local want_ssh=0
-  if is_interactive; then
-    confirm "Install SSH server?" N && want_ssh=1
+  if [ -n "${OPT_SSH:-}" ]; then
+    want_ssh="$OPT_SSH"
+  elif is_interactive; then
+    confirm "Install and start SSH server?" Y && want_ssh=1
   fi
 
   # Step: summary + space check

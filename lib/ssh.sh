@@ -27,8 +27,9 @@ ssh_install() {
   ssh_ensure_user "$user"
 
   config_save
-  log_ok "SSH installed. Use: android-linux ssh start"
-  ssh_connection_info "$port" "$user"
+  log_ok "SSH installed."
+  # Automatically start SSH server after install
+  ssh_start
 }
 
 ssh_ensure_user() {
