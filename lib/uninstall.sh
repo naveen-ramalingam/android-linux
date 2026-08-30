@@ -36,4 +36,6 @@ uninstall_run() {
   fi
 
   log_ok "AndroidLinux uninstalled. The 'android-linux' command itself remains; delete it manually if desired."
+  # Exit the process so the interactive menu loop does not spin after uninstall.
+  exit 0
 }
