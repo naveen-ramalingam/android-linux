@@ -296,6 +296,9 @@ distro_extract() {
   # not merged with this one, which could leave a corrupted hybrid filesystem.
   if [ -e "$rootfs" ]; then
     log_info "Cleaning previous rootfs before extraction..."
+    chroot_stop "$rootfs" >/dev/null 2>&1 || true
+    proot_stop "$rootfs" >/dev/null 2>&1 || true
+    unmount_all_under "$rootfs"
     safe_remove "$rootfs" "$LINUX_BASE" 1 || { log_error "Could not clean previous rootfs"; return 1; }
   fi
   mkdir -p "$rootfs" 2>/dev/null || true

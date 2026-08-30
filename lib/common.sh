@@ -424,6 +424,27 @@ path_within() {
   return 1
 }
 
+# unmount_all_under: find and unmount any active mount points inside target.
+unmount_all_under() {
+  local target="$1"
+  [ -n "$target" ] || return 0
+  local norm; norm=$(normalize_path "$target" 2>/dev/null) || norm="$target"
+  [ -n "$norm" ] || return 0
+
+  if [ -r /proc/mounts ]; then
+    local mnt
+    while IFS= read -r mnt; do
+      [ -n "$mnt" ] || continue
+      log_debug "unmounting active mount under $norm: $mnt"
+      if [ "${ROOT_AVAILABLE:-0}" = "1" ] && command -v run_as_root >/dev/null 2>&1; then
+        run_as_root umount "$mnt" 2>/dev/null || run_as_root umount -l "$mnt" 2>/dev/null || true
+      else
+        umount "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null || true
+      fi
+    done < <(awk -v p="$norm/" '$2 ~ "^"p {print $2}' /proc/mounts 2>/dev/null | sort -r)
+  fi
+}
+
 # safe_remove: only removes a path that lives inside the AndroidLinux base.
 # Usage: safe_remove <path> [<allowed_base>] [<use_root:0|1>]
 # When <use_root> is 1 and root is available, the removal is done through
@@ -469,6 +490,15 @@ safe_remove() {
     return 0
   fi
   log_debug "safe_remove: rm -rf '$norm' (use_root=$use_root)"
+
+  # Unmount any active kernel/storage mounts under the target path before deletion
+  unmount_all_under "$norm"
+
+  # Terminate any lingering proot processes accessing files in target path
+  if have_cmd pkill; then
+    pkill -9 -f "proot.*$norm" 2>/dev/null || true
+  fi
+
   if rm -rf -- "$norm" 2>/dev/null; then
     return 0
   fi

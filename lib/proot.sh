@@ -66,7 +66,14 @@ proot_enter() {
   fi
 }
 
-# proot mode has no persistent mounts; start/stop are no-ops for symmetry.
+# proot mode has no persistent mounts; stop any running proot processes.
 proot_start() { log_debug "proot: no persistent mounts to start"; state_set READY; return 0; }
-proot_stop()  { log_debug "proot: nothing to unmount"; return 0; }
+proot_stop() {
+  local rootfs="${1:-$LINUX_ROOT}"
+  if [ -n "$rootfs" ] && have_cmd pkill; then
+    pkill -9 -f "proot.*$rootfs" 2>/dev/null || true
+  fi
+  log_debug "proot: guest processes stopped"
+  return 0
+}
 proot_status() { printf 'on-demand'; }

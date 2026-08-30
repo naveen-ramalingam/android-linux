@@ -51,6 +51,10 @@ if [ "$IS_TERMUX" = 1 ]; then
   BIN_TARGET="${PREFIX}/bin/android-linux"
   # Auto-install essential Termux packages if pkg is available
   if have pkg; then
+    # Recover from any previously interrupted dpkg run in Termux
+    if have dpkg; then
+      dpkg --configure -a --force-confdef --force-confold 2>/dev/null || true
+    fi
     pkgs_to_install=()
     have curl || pkgs_to_install+=(curl)
     have git || pkgs_to_install+=(git)
@@ -110,11 +114,17 @@ fetch() {
 
 if have git; then
   say "Cloning via git..."
+  export GIT_TERMINAL_PROMPT=0
+  git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
   if [ -d "$APP_DIR/.git" ]; then
-    ( cd "$APP_DIR" && git pull --ff-only ) || warn "git pull failed; keeping existing copy"
+    ( cd "$APP_DIR" && git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 fetch --depth 1 origin "$REPO_BRANCH" && git reset --hard "origin/$REPO_BRANCH" ) || {
+      warn "git update failed; re-cloning fresh copy..."
+      rm -rf "$APP_DIR"
+      git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 clone --depth 1 -b "$REPO_BRANCH" "$REPO_GIT" "$APP_DIR" || die "git clone failed. Check your network."
+    }
   else
     rm -rf "$APP_DIR"
-    git clone --depth 1 -b "$REPO_BRANCH" "$REPO_GIT" "$APP_DIR" \
+    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 clone --depth 1 -b "$REPO_BRANCH" "$REPO_GIT" "$APP_DIR" \
       || die "git clone failed. Check the repository URL / your network."
   fi
 else

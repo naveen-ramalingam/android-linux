@@ -26,10 +26,18 @@ uninstall_run() {
 
   confirm "Permanently delete the AndroidLinux installation?" N || { log_info "Aborted."; return 0; }
 
-  # Stop any running environment first.
+  # Stop any running environment first and clean up mount points.
   linux_stop >/dev/null 2>&1 || true
+  chroot_stop "${LINUX_ROOT:-$base/rootfs}" >/dev/null 2>&1 || true
+  proot_stop "${LINUX_ROOT:-$base/rootfs}" >/dev/null 2>&1 || true
+  unmount_all_under "$base" >/dev/null 2>&1 || true
 
   safe_remove "$base" "$base" 1 || { log_error "Uninstall failed."; return 1; }
+
+  # Clean up state file and home directory if separate from base
+  if [ -n "${ANDROID_LINUX_HOME:-}" ] && [ "$ANDROID_LINUX_HOME" != "$base" ]; then
+    rm -f "$(state_file)" 2>/dev/null || true
+  fi
 
   if confirm "Also remove configuration ($ANDROID_LINUX_CONFIG_DIR)?" N; then
     safe_remove "$ANDROID_LINUX_CONFIG_DIR" "$ANDROID_LINUX_CONFIG_DIR" 1 2>/dev/null || true

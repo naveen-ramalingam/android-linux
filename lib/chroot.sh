@@ -78,6 +78,7 @@ chroot_stop() {
         || log_warn "Could not unmount $target"
     fi
   done
+  unmount_all_under "$rootfs"
   log_ok "chroot environment stopped"
 }
 

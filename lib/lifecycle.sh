@@ -86,9 +86,9 @@ guest_pkg_install() {
           [ ! -f /etc/apt/trusted.gpg ] && _need_keyring=1; \
         if [ \"\$_need_keyring\" = 1 ]; then \
           apt-get update -o Acquire::AllowInsecureRepositories=true \
-            -o APT::Get::AllowUnauthenticated=true 2>/dev/null || true; \
-          apt-get install -y --allow-unauthenticated --fix-missing \
-            ${DISTRO_FN:-debian}-archive-keyring 2>/dev/null || true; \
+            -o APT::Get::AllowUnauthenticated=true 2>/dev/null < /dev/null || true; \
+          apt-get install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" --allow-unauthenticated --fix-missing \
+            ${DISTRO_FN:-debian}-archive-keyring 2>/dev/null < /dev/null || true; \
           find /usr/share/keyrings -name '*.gpg' 2>/dev/null | \
             while IFS= read -r _kf; do \
               cp -f \"\$_kf\" /etc/apt/trusted.gpg.d/ 2>/dev/null || true; \
@@ -100,7 +100,7 @@ guest_pkg_install() {
                 cp -f \"\$_kf\" /etc/apt/trusted.gpg.d/ 2>/dev/null || true; \
             done; \
         fi; \
-        apt-get update && apt-get install -y --fix-missing $pkgs"
+        apt-get update < /dev/null && apt-get install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" --fix-missing $pkgs < /dev/null"
       ;;
     alpine)
       linux_run "apk update && apk add $pkgs" ;;
