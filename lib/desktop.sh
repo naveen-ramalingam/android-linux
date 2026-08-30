@@ -40,21 +40,33 @@ desktop_install() {
   DESKTOP="$de"; config_set DESKTOP "$de"; config_save
   desktop_write_startup "$de"
   desktop_set_vnc_password
-  log_ok "$de desktop installed. Start with: android-linux desktop start"
+  log_ok "$de desktop installed."
+  # Automatically start VNC server after install
+  desktop_start
 }
 
-# desktop_set_vnc_password: create a random VNC password (shown once).
+# desktop_set_vnc_password: prompt for or create a VNC password.
 desktop_set_vnc_password() {
-  local pass
-  pass=$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 12)
-  if [ -z "$pass" ]; then
-    log_warn "Could not generate a VNC password; set one with 'vncpasswd' inside the guest."
-    return 0
+  local pass=""
+  if is_interactive; then
+    pass=$(ask_secret "Set VNC password (press Enter for auto-generated)")
   fi
-  # The password is alphanumeric, so embedding it single-quoted is safe.
-  linux_run "mkdir -p /root/.vnc && printf '%s' '${pass}' | vncpasswd -f > /root/.vnc/passwd && chmod 600 /root/.vnc/passwd"
-  log_ok "VNC password generated (shown once): ${pass}"
-  log_warn "Store this password - VNC viewers will ask for it."
+  if [ -z "$pass" ]; then
+    pass=$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 8)
+    [ -z "$pass" ] && pass="vncpass1"
+    log_ok "VNC password generated: ${pass}"
+    log_warn "Save this password - your VNC viewer app will ask for it."
+  else
+    log_ok "VNC password configured."
+  fi
+  # The password is alphanumeric/safe string; embed securely into vncpasswd.
+  local b64
+  if have_cmd base64; then
+    b64=$(printf '%s' "$pass" | base64 | tr -d '\n')
+    linux_run "mkdir -p /root/.vnc && printf '%s' '${b64}' | base64 -d | vncpasswd -f > /root/.vnc/passwd && chmod 600 /root/.vnc/passwd"
+  else
+    linux_run "mkdir -p /root/.vnc && printf '%s\n%s\n\n' '${pass}' '${pass}' | vncpasswd 2>/dev/null || true && chmod 600 /root/.vnc/passwd 2>/dev/null || true"
+  fi
 }
 
 # desktop_write_startup: create ~/.vnc/xstartup inside the guest.
@@ -90,19 +102,20 @@ desktop_start() {
   linux_run "vncserver -kill ${display} 2>/dev/null || true"
   linux_run "vncserver ${display} -geometry 1280x720 -depth 24 ${locflag}"
   detect_network
-  printf '\nVNC desktop:\n'
+  printf '\n%s▸ VNC Desktop Server Running%s\n' "${C_BOLD}" "${C_RESET}"
   printf '  Display: %s\n' "$display"
   printf '  Port:    %s\n' "$vncport"
+  printf '\n  %s1. Connect on Your Phone (Android):%s\n' "$C_BOLD" "$C_RESET"
+  printf '     • Open any VNC app (e.g. AVNC, RealVNC, bVNC)\n'
+  printf '     • Address:  127.0.0.1:%s\n' "$vncport"
+  printf '     • Password: (your configured VNC password)\n'
+  printf '\n  %s2. Connect from Your Computer (Mac/Linux/Windows):%s\n' "$C_BOLD" "$C_RESET"
   if [ "${VNC_LOCALHOST:-1}" != "0" ]; then
-    printf '  Bound to localhost only (recommended).\n'
-    printf '\nConnect via an SSH tunnel from your computer:\n'
-    printf '  ssh -p %s -L %s:localhost:%s %s@%s\n' "${SSH_PORT:-2222}" "$vncport" "$vncport" "${LINUX_USER:-android}" "${NET_IPV4:-<device-ip>}"
-    printf 'then point your VNC viewer at  localhost:%s\n' "$vncport"
+    printf '     • Run SSH Tunnel:  ssh -p %s -L %s:127.0.0.1:%s %s@%s\n' "${SSH_PORT:-2222}" "$vncport" "$vncport" "${LINUX_USER:-android}" "${NET_IPV4:-<device-ip>}"
+    printf '     • In VNC Viewer:   localhost:%s\n' "$vncport"
   else
-    printf '  Address: %s:%s\n' "${NET_IPV4:-<device-ip>}" "$vncport"
-    printf '\nConnect with any VNC viewer to %s:%s\n' "${NET_IPV4:-<device-ip>}" "$vncport"
+    printf '     • In VNC Viewer:   %s:%s\n' "${NET_IPV4:-<device-ip>}" "$vncport"
   fi
-  [ "${IS_TERMUX:-0}" = 1 ] && printf 'Termux:X11 users can also export DISPLAY and run apps directly.\n'
   printf '\n'
 }
 
