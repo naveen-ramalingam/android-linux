@@ -44,12 +44,18 @@ chroot_start() {
       continue
     fi
     [ -e "$src" ] || { log_debug "skip missing source $src"; continue; }
-    if ! run_as_root mount --bind "$src" "$target" 2>/dev/null; then
-      log_warn "Could not bind-mount $src -> $target (kernel/SELinux policy may forbid it)"
+    if [ "$rel" = "dev/pts" ]; then
+      if ! run_as_root mount -t devpts devpts "$target" -o rw,nosuid,noexec,relatime,mode=600,ptmxmode=000 2>/dev/null; then
+        run_as_root mount --bind "$src" "$target" 2>/dev/null || log_warn "Could not bind-mount $src -> $target"
+      fi
+    else
+      if ! run_as_root mount --bind "$src" "$target" 2>/dev/null; then
+        log_warn "Could not bind-mount $src -> $target (kernel/SELinux policy may forbid it)"
+      fi
     fi
   done
 
-  configure_rootfs_dns "$rootfs" "${DNS:-1.1.1.1}"
+  configure_rootfs_environment "$rootfs" "${DNS:-1.1.1.1}"
   state_set READY
   log_ok "chroot environment ready"
 }
@@ -88,6 +94,11 @@ chroot_enter() {
     log_info "[dry-run] would chroot into $rootfs as $user"
     return 0
   fi
+  run_as_root chmod 666 "$rootfs/dev/null" "$rootfs/dev/zero" "$rootfs/dev/full" "$rootfs/dev/random" "$rootfs/dev/urandom" "$rootfs/dev/tty" 2>/dev/null || true
+  if [ -e "$rootfs/dev/pts/ptmx" ] && [ ! -e "$rootfs/dev/ptmx" ]; then
+    run_as_root ln -sf pts/ptmx "$rootfs/dev/ptmx" 2>/dev/null || true
+  fi
+  run_as_root chmod 666 "$rootfs/dev/ptmx" 2>/dev/null || true
   run_as_root env -i \
     HOME=/root TERM="${TERM:-xterm}" \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \

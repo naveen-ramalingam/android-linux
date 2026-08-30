@@ -81,8 +81,13 @@ configure_rootfs_dns() {
   local tmp_resolv
   tmp_resolv=$(mktemp 2>/dev/null || printf '/tmp/resolv.conf.%s' "$$")
   {
-    printf 'nameserver %s\n' "$dns"
-    printf 'nameserver 8.8.8.8\n'
+    local d
+    for d in "$dns" \
+      "$(safe_get getprop net.dns1)" \
+      "$(safe_get getprop net.dns2)" \
+      "1.1.1.1" "8.8.8.8" "9.9.9.9" "8.8.4.4"; do
+      [ -n "$d" ] && printf 'nameserver %s\n' "$d"
+    done | awk '!seen[$0]++'
   } >"$tmp_resolv" || { log_warn "Could not create temporary resolv.conf"; return 1; }
   
   if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
@@ -101,4 +106,81 @@ configure_rootfs_dns() {
   
   rm -f "$tmp_resolv" 2>/dev/null
   log_debug "wrote DNS ($dns) into $rootfs/etc/resolv.conf"
+}
+
+# configure_rootfs_environment: configure /etc/resolv.conf, /etc/hosts,
+# APT sandbox overrides for Android, and Android AID network groups.
+configure_rootfs_environment() {
+  local rootfs="${1:-$LINUX_ROOT}" dns="${2:-${DNS:-1.1.1.1}}"
+  [ -n "$rootfs" ] || return 1
+  path_within "$rootfs" "${LINUX_BASE:-$rootfs}" || return 1
+
+  configure_rootfs_dns "$rootfs" "$dns"
+
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
+    log_info "[dry-run] would configure rootfs environment (APT, hosts, groups) in $rootfs"
+    return 0
+  fi
+
+  local is_root=0
+  [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ] && is_root=1
+
+  # 1. Configure /etc/hosts if missing or empty
+  if [ ! -s "$rootfs/etc/hosts" ]; then
+    local tmp_hosts
+    tmp_hosts=$(mktemp 2>/dev/null || printf '/tmp/hosts.%s' "$$")
+    cat >"$tmp_hosts" <<'EOF'
+127.0.0.1 localhost
+::1 localhost ip6-localhost ip6-loopback
+EOF
+    if [ "$is_root" = 1 ]; then
+      run_as_root cp "$tmp_hosts" "$rootfs/etc/hosts" 2>/dev/null || true
+    else
+      cp "$tmp_hosts" "$rootfs/etc/hosts" 2>/dev/null || true
+    fi
+    rm -f "$tmp_hosts" 2>/dev/null
+  fi
+
+  # 2. Fix Debian/Ubuntu APT on Android:
+  # Android kernel restricts raw sockets to AID_INET (GID 3003) or root.
+  # When apt drops privileges to the '_apt' user, it gets EPERM on socket()
+  # resulting in "Temporary failure resolving 'deb.debian.org'".
+  # Setting APT::Sandbox::User "root" fixes this cleanly.
+  if [ -d "$rootfs/etc/apt" ] || [ -f "$rootfs/usr/bin/apt-get" ] || [ -f "$rootfs/usr/bin/apt" ]; then
+    local tmp_apt
+    tmp_apt=$(mktemp 2>/dev/null || printf '/tmp/99android.%s' "$$")
+    printf 'APT::Sandbox::User "root";\n' >"$tmp_apt"
+    if [ "$is_root" = 1 ]; then
+      run_as_root mkdir -p "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
+      run_as_root cp "$tmp_apt" "$rootfs/etc/apt/apt.conf.d/99android" 2>/dev/null || true
+    else
+      mkdir -p "$rootfs/etc/apt/apt.conf.d" 2>/dev/null || true
+      cp "$tmp_apt" "$rootfs/etc/apt/apt.conf.d/99android" 2>/dev/null || true
+    fi
+    rm -f "$tmp_apt" 2>/dev/null
+  fi
+
+  # 3. Android AID network groups in /etc/group
+  if [ -f "$rootfs/etc/group" ]; then
+    local tmp_group
+    tmp_group=$(mktemp 2>/dev/null || printf '/tmp/group.%s' "$$")
+    if [ "$is_root" = 1 ]; then
+      run_as_root cp "$rootfs/etc/group" "$tmp_group" 2>/dev/null || true
+    else
+      cp "$rootfs/etc/group" "$tmp_group" 2>/dev/null || true
+    fi
+    local g
+    for g in "aid_inet:x:3003:root,_apt" "aid_net_raw:x:3004:root" "aid_net_admin:x:3005:root" "aid_sdcard_rw:x:1015:root" "aid_media_rw:x:1023:root" "aid_everybody:x:9997:root"; do
+      local gname="${g%%:*}"
+      if ! grep -q "^${gname}:" "$tmp_group" 2>/dev/null; then
+        printf '%s\n' "$g" >>"$tmp_group"
+      fi
+    done
+    if [ "$is_root" = 1 ]; then
+      run_as_root cp "$tmp_group" "$rootfs/etc/group" 2>/dev/null || true
+    else
+      cp "$tmp_group" "$rootfs/etc/group" 2>/dev/null || true
+    fi
+    rm -f "$tmp_group" 2>/dev/null
+  fi
 }

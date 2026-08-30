@@ -278,7 +278,7 @@ do_install() {
   distro_download || return 1
   distro_verify || return 1
   distro_extract || return 1
-  configure_rootfs_dns "$LINUX_ROOT" "${DNS:-1.1.1.1}"
+  configure_rootfs_environment "$LINUX_ROOT" "${DNS:-1.1.1.1}"
   state_set READY
   log_ok "$DISTRO_DISPLAY is ready at $LINUX_ROOT"
 }

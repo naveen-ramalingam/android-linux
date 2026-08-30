@@ -17,7 +17,7 @@ proot_enter() {
       "Inside Termux run: pkg install proot"
     return 1
   fi
-  configure_rootfs_dns "$rootfs" "${DNS:-1.1.1.1}"
+  configure_rootfs_environment "$rootfs" "${DNS:-1.1.1.1}"
 
   # Bind Android kernel filesystems read-only-ish into the guest.
   local binds=(
