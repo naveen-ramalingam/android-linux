@@ -44,13 +44,24 @@ proot_enter() {
 
   state_set READY
   log_info "Entering ${DISTRO_DISPLAY:-Linux} (proot). Type 'exit' to leave."
+  local proot_opts=()
+  if proot --help 2>&1 | grep -q -- '--kill-on-exit'; then
+    proot_opts+=(--kill-on-exit)
+  fi
+  if proot --help 2>&1 | grep -q -- '--root-id'; then
+    proot_opts+=(--root-id)
+  elif proot --help 2>&1 | grep -q -- '-0'; then
+    proot_opts+=(-0)
+  fi
+  proot_opts+=(--cwd=/root)
+
   # shellcheck disable=SC2016
   local cmd='HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=${TERM:-xterm} '
   if [ "$#" -gt 0 ]; then
-    proot --kill-on-exit --root-id --cwd=/root \
+    proot "${proot_opts[@]}" \
       "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "$cmd exec $*"
   else
-    proot --kill-on-exit --root-id --cwd=/root \
+    proot "${proot_opts[@]}" \
       "${binds[@]}" -r "$rootfs" /usr/bin/env -i sh -c "${cmd} exec $shell -l"
   fi
 }

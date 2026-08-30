@@ -309,7 +309,11 @@ distro_extract() {
   # Under proot we relocate device-node/link creation; under root we can extract fully.
   local extractor="tar"
   if [ "${INSTALL_MODE:-}" = "proot" ] && have_cmd proot; then
-    extractor="proot --link2symlink tar"
+    if proot --help 2>&1 | grep -q -- '--link2symlink'; then
+      extractor="proot --link2symlink tar"
+    elif proot --help 2>&1 | grep -q -- '-0'; then
+      extractor="proot -0 tar"
+    fi
   fi
 
   # Extract the rootfs. tar's exit status is captured, not treated as
