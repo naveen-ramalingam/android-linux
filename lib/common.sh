@@ -15,7 +15,7 @@ fi
 ANDROID_LINUX_COMMON_LOADED=1
 
 # --- Version ----------------------------------------------------------------
-ANDROID_LINUX_VERSION="1.2.1"
+ANDROID_LINUX_VERSION="1.2.2"
 ANDROID_LINUX_NAME="AndroidLinux"
 
 # --- Base directories -------------------------------------------------------
@@ -356,10 +356,14 @@ path_within() {
 }
 
 # safe_remove: only removes a path that lives inside the AndroidLinux base.
-# Usage: safe_remove <path> [<allowed_base>]
+# Usage: safe_remove <path> [<allowed_base>] [<use_root:0|1>]
+# When <use_root> is 1 and root is available, the removal is done through
+# run_as_root. This matters because a rootfs extracted in chroot mode is
+# root-owned, so a non-root shell cannot delete it (Permission denied).
 safe_remove() {
   local target="$1"
   local base="${2:-${LINUX_BASE:-$ANDROID_LINUX_HOME}}"
+  local use_root="${3:-0}"
   local norm; norm=$(normalize_path "$target") || { log_error "safe_remove: invalid path '$target'"; return 1; }
 
   if [ -z "$norm" ] || [ "$norm" = "/" ]; then
@@ -395,8 +399,24 @@ safe_remove() {
     log_info "[dry-run] would remove: $norm"
     return 0
   fi
-  log_debug "safe_remove: rm -rf '$norm'"
-  rm -rf -- "$norm"
+  log_debug "safe_remove: rm -rf '$norm' (use_root=$use_root)"
+  if rm -rf -- "$norm" 2>/dev/null; then
+    return 0
+  fi
+  # Removal as the current user failed. The tree may be root-owned (extracted in
+  # chroot mode). Escalate to root if allowed.
+  if [ "$use_root" = "1" ]; then
+    if [ -z "${ROOT_AVAILABLE:-}" ] && command -v detect_root >/dev/null 2>&1; then
+      detect_root
+    fi
+    if [ "${ROOT_AVAILABLE:-0}" = "1" ] && command -v run_as_root >/dev/null 2>&1; then
+      log_info "Retrying removal with root privileges..."
+      run_as_root rm -rf -- "$norm"
+      return $?
+    fi
+  fi
+  log_error "safe_remove: could not remove '$norm' (permission denied?)"
+  return 1
 }
 
 # --- Config -----------------------------------------------------------------

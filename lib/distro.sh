@@ -295,7 +295,7 @@ distro_extract() {
   # not merged with this one, which could leave a corrupted hybrid filesystem.
   if [ -e "$rootfs" ]; then
     log_info "Cleaning previous rootfs before extraction..."
-    safe_remove "$rootfs" "$LINUX_BASE" || { log_error "Could not clean previous rootfs"; return 1; }
+    safe_remove "$rootfs" "$LINUX_BASE" 1 || { log_error "Could not clean previous rootfs"; return 1; }
   fi
   mkdir -p "$rootfs" 2>/dev/null || true
   state_set EXTRACTING

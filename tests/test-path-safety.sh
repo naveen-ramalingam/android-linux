@@ -27,4 +27,13 @@ assert_false safe_remove "$TEST_TMP/outside" "$SAFE_BASE" "safe_remove outside b
 assert_false safe_remove / "$SAFE_BASE" "safe_remove refuses /"
 assert_false safe_remove /system "$SAFE_BASE" "safe_remove refuses /system"
 
+# Permission-denied removal (e.g. a root-owned tree cleaned by a non-root user).
+PROT="$TEST_TMP/protected"; mkdir -p "$PROT"; touch "$PROT/f"; chmod 555 "$PROT"
+ROOT_AVAILABLE=0
+assert_false safe_remove "$PROT" "$TEST_TMP" 0 "non-root removal of unwritable dir fails"
+assert_true  bash -c "[ -e '$PROT' ]" "unwritable dir still present after failed removal"
+assert_false safe_remove "$PROT" "$TEST_TMP" 1 "use_root=1 without root fails gracefully"
+chmod 755 "$PROT"
+assert_true  safe_remove "$PROT" "$TEST_TMP" 0 "removal succeeds once writable"
+
 test_summary

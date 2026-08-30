@@ -29,10 +29,10 @@ uninstall_run() {
   # Stop any running environment first.
   linux_stop >/dev/null 2>&1 || true
 
-  safe_remove "$base" "$base" || { log_error "Uninstall failed."; return 1; }
+  safe_remove "$base" "$base" 1 || { log_error "Uninstall failed."; return 1; }
 
   if confirm "Also remove configuration ($ANDROID_LINUX_CONFIG_DIR)?" N; then
-    safe_remove "$ANDROID_LINUX_CONFIG_DIR" "$ANDROID_LINUX_CONFIG_DIR" 2>/dev/null || true
+    safe_remove "$ANDROID_LINUX_CONFIG_DIR" "$ANDROID_LINUX_CONFIG_DIR" 1 2>/dev/null || true
   fi
 
   log_ok "AndroidLinux uninstalled. The 'android-linux' command itself remains; delete it manually if desired."

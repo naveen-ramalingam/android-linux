@@ -33,7 +33,7 @@ restore_from() {
   linux_stop >/dev/null 2>&1 || true
 
   # Remove existing rootfs safely, then extract.
-  safe_remove "$LINUX_ROOT" "$LINUX_BASE" || return 1
+  safe_remove "$LINUX_ROOT" "$LINUX_BASE" 1 || return 1
   local parent; parent=$(dirname "$LINUX_BASE")
   log_info "Restoring into $parent ..."
   local numopt=""
