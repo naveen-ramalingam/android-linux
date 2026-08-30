@@ -156,13 +156,59 @@ configure_rootfs_environment() {
     write_rootfs_file "$rootfs/etc/hosts" "$hosts_content" || true
   fi
 
-  # 2. Fix Debian/Ubuntu APT on Android:
-  # Android kernel restricts raw sockets to AID_INET (GID 3003) or root.
-  # When apt drops privileges to the '_apt' user, it gets EPERM on socket()
-  # resulting in "Temporary failure resolving 'deb.debian.org'".
-  # Setting APT::Sandbox::User "root" fixes this cleanly.
+  # 2. Fix Debian/Ubuntu APT on Android & populate sources.list if missing
   if [ -d "$rootfs/etc/apt" ] || [ -f "$rootfs/usr/bin/apt-get" ] || [ -f "$rootfs/usr/bin/apt" ]; then
     write_rootfs_file "$rootfs/etc/apt/apt.conf.d/99android" 'APT::Sandbox::User "root";' || true
+    if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+      run_as_root mkdir -p "$rootfs/etc/apt/sources.list.d" "$rootfs/etc/apt/preferences.d" 2>/dev/null || true
+    else
+      mkdir -p "$rootfs/etc/apt/sources.list.d" "$rootfs/etc/apt/preferences.d" 2>/dev/null || true
+    fi
+
+    local has_sources=0
+    [ -s "$rootfs/etc/apt/sources.list" ] && has_sources=1
+    if [ -d "$rootfs/etc/apt/sources.list.d" ]; then
+      local count
+      count=$(find "$rootfs/etc/apt/sources.list.d" -maxdepth 1 -type f 2>/dev/null | wc -l)
+      [ "${count:-0}" -gt 0 ] && has_sources=1
+    fi
+
+    if [ "$has_sources" = 0 ]; then
+      case "${DISTRO_FN:-debian}" in
+        ubuntu)
+          local u_suite="${DISTRO_SUITE:-noble}"
+          local ub_sources
+          ub_sources=$(cat <<EOF
+deb http://ports.ubuntu.com/ubuntu-ports ${u_suite} main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports ${u_suite}-updates main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports ${u_suite}-security main restricted universe multiverse
+EOF
+)
+          write_rootfs_file "$rootfs/etc/apt/sources.list" "$ub_sources" || true
+          ;;
+        *)
+          local d_suite="${DISTRO_SUITE:-trixie}"
+          local deb_sources
+          deb_sources=$(cat <<EOF
+deb http://deb.debian.org/debian ${d_suite} main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security ${d_suite}-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian ${d_suite}-updates main contrib non-free non-free-firmware
+EOF
+)
+          write_rootfs_file "$rootfs/etc/apt/sources.list" "$deb_sources" || true
+          ;;
+      esac
+    fi
+  elif [ -d "$rootfs/etc/apk" ]; then
+    if [ ! -s "$rootfs/etc/apk/repositories" ]; then
+      local apk_repos
+      apk_repos=$(cat <<'EOF'
+https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+https://dl-cdn.alpinelinux.org/alpine/v3.20/community
+EOF
+)
+      write_rootfs_file "$rootfs/etc/apk/repositories" "$apk_repos" || true
+    fi
   fi
 
   # 3. Android AID network groups in /etc/group

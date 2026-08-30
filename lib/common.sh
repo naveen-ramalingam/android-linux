@@ -310,11 +310,19 @@ write_rootfs_file() {
   local dir; dir=$(dirname "$target")
   if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
-    local b64; b64=$(printf '%s' "$content" | base64 | tr -d '\n')
-    run_as_root sh -c "printf '%s' '$b64' | base64 -d > '$target'" 2>/dev/null || return 1
+    if printf '%s\n' "$content" > "$target" 2>/dev/null; then
+      return 0
+    fi
+    local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
+    if [ -n "$b64" ]; then
+      if run_as_root sh -c "echo '$b64' | base64 -d > '$target'" 2>/dev/null; then return 0; fi
+      if run_as_root sh -c "echo '$b64' | base64 -D > '$target'" 2>/dev/null; then return 0; fi
+    fi
+    local qcontent; qcontent=$(shell_quote "$content")
+    run_as_root sh -c "printf '%s\n' $qcontent > '$target'" 2>/dev/null || return 1
   else
     mkdir -p "$dir" 2>/dev/null || true
-    printf '%s' "$content" > "$target" 2>/dev/null || return 1
+    printf '%s\n' "$content" > "$target" 2>/dev/null || return 1
   fi
 }
 
