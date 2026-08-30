@@ -96,7 +96,8 @@ ensure_dependencies() {
   if [ "${IS_TERMUX:-0}" = "1" ] && have_cmd pkg && [ ${#pkgs[@]} -gt 0 ]; then
     if confirm "Install missing packages via pkg (${pkgs[*]})?" Y; then
       log_info "Running: pkg install ${pkgs[*]}"
-      if pkg install -y "${pkgs[@]}"; then
+      export DEBIAN_FRONTEND=noninteractive
+      if pkg install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "${pkgs[@]}" < /dev/null; then
         log_ok "Installed: ${pkgs[*]}"
         return 0
       fi
@@ -150,14 +151,14 @@ fetch_file() {
   fi
   mkdir -p "$(dirname "$dest")" 2>/dev/null || true
   if have_cmd aria2c; then
-    aria2c -x4 -s4 --continue=true --allow-overwrite=true \
+    aria2c --connect-timeout=15 --timeout=30 -x4 -s4 --continue=true --allow-overwrite=true \
       -d "$(dirname "$dest")" -o "$(basename "$dest")" "$url" && return 0
   fi
   if have_cmd curl; then
-    curl -fL --retry 3 --continue-at - -o "$dest" "$url" && return 0
+    curl -fL --connect-timeout 15 --speed-time 30 --speed-limit 1024 --retry 3 --continue-at - -o "$dest" "$url" && return 0
   fi
   if have_cmd wget; then
-    wget -c -O "$dest" "$url" && return 0
+    wget --timeout=30 --tries=3 -c -O "$dest" "$url" && return 0
   fi
   error_report "Download failed for $url" \
     "No working download tool (aria2c/curl/wget) or the network is down." \

@@ -59,8 +59,9 @@ if [ "$IS_TERMUX" = 1 ]; then
     have xz || pkgs_to_install+=(xz-utils)
     if [ ${#pkgs_to_install[@]} -gt 0 ]; then
       say "Auto-installing required Termux packages: ${pkgs_to_install[*]}..."
-      pkg update -y 2>/dev/null || true
-      pkg install -y "${pkgs_to_install[@]}" || warn "Failed to auto-install some packages. Proceeding with setup..."
+      export DEBIAN_FRONTEND=noninteractive
+      pkg update -y -q 2>/dev/null < /dev/null || true
+      pkg install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "${pkgs_to_install[@]}" < /dev/null || warn "Failed to auto-install some packages. Proceeding with setup..."
     fi
   fi
 else
@@ -102,8 +103,8 @@ mkdir -p "$INSTALL_PARENT" "$(dirname "$BIN_TARGET")"
 
 fetch() {
   # fetch <url> <dest>
-  if have curl; then curl -fL --retry 3 -o "$2" "$1"
-  elif have wget; then wget -O "$2" "$1"
+  if have curl; then curl -fL --connect-timeout 15 --speed-time 30 --speed-limit 1024 --retry 3 -o "$2" "$1"
+  elif have wget; then wget --timeout=30 --tries=3 -O "$2" "$1"
   else return 1; fi
 }
 
