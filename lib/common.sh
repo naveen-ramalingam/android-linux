@@ -306,44 +306,55 @@ banner() {
 # write_rootfs_file: write string content directly to a file inside the rootfs
 # without creating temporary files on host (avoids permission issues under su).
 #
-# Strategy for chroot+root mode (rootfs is root-owned):
-#   'su -c "..."' does NOT inherit stdin, so we cannot pipe into run_as_root.
-#   We write to a host-side temp file (host user owns LINUX_BASE, so this
-#   always succeeds), then use run_as_root cp to place it at the target path.
-#   The temp file is cleaned up regardless of success or failure.
-#   Fallback: base64 round-trip embedded entirely in the su subshell string.
-# For proot / non-root mode the current user owns the rootfs, so a plain
-# redirect works fine.
+# Strategy:
+#   1. Write to a host-side temp file (Termux user owns LINUX_BASE).
+#      Then try direct write first; if that fails (permission denied because
+#      the rootfs is root-owned), use run_as_root cp.
+#   2. base64 round-trip entirely inside a root sh -c (su-safe, no stdin).
+#   3. shell_quote + printf inside a root shell (last resort).
 write_rootfs_file() {
   local target="$1" content="$2"
   local dir; dir=$(dirname "$target")
-  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+  local tmpdir="${LINUX_BASE:-${ANDROID_LINUX_HOME}}"
+  local tmp="${tmpdir}/.wrf_tmp_$$"
+
+  # Always ensure the directory exists (try both with and without root).
+  mkdir -p "$dir" 2>/dev/null || true
+  if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     run_as_root mkdir -p "$dir" 2>/dev/null || true
-    # Method 1: write to a host-owned temp file, then cp as root.
-    # The temp dir is under LINUX_BASE which the Termux user owns.
-    local tmpdir="${LINUX_BASE:-${ANDROID_LINUX_HOME}}"
-    local tmp="${tmpdir}/.wrf_tmp_$$"
-    if printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
+  fi
+
+  # Method 1: temp file on host (non-root write), then cp.
+  if printf '%s\n' "$content" > "$tmp" 2>/dev/null; then
+    # Try direct write first (works in proot / when user already owns the file).
+    if cp "$tmp" "$target" 2>/dev/null; then
+      rm -f "$tmp" 2>/dev/null || true
+      return 0
+    fi
+    # Escalate to root cp if direct write failed.
+    if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
       if run_as_root cp "$tmp" "$target" 2>/dev/null; then
         rm -f "$tmp" 2>/dev/null || true
         return 0
       fi
-      rm -f "$tmp" 2>/dev/null || true
     fi
-    # Method 2: base64 round-trip inside the su subshell.
-    # b64 uses only [A-Za-z0-9+/=] — safe to embed in a double-quoted sh -c.
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+
+  # Method 2: base64 round-trip inside a root shell (su doesn't inherit stdin).
+  if [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
     local b64; b64=$(printf '%s\n' "$content" | base64 2>/dev/null | tr -d '\r\n')
     if [ -n "$b64" ]; then
       if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -d > \"$target\"" 2>/dev/null; then return 0; fi
       if run_as_root sh -c "printf '%s\n' \"$b64\" | base64 -D > \"$target\"" 2>/dev/null; then return 0; fi
     fi
-    # Method 3: shell_quote content, printf inside a root shell.
+    # Method 3: shell_quote + printf inside a root shell.
     local qcontent; qcontent=$(shell_quote "$content")
-    run_as_root sh -c "printf '%s\n' $qcontent > \"$target\"" 2>/dev/null || return 1
-  else
-    mkdir -p "$dir" 2>/dev/null || true
-    printf '%s\n' "$content" > "$target" 2>/dev/null || return 1
+    run_as_root sh -c "printf '%s\n' $qcontent > \"$target\"" 2>/dev/null && return 0
   fi
+
+  # Final fallback: direct write (may fail if root-owned, but best effort).
+  printf '%s\n' "$content" > "$target" 2>/dev/null || return 1
 }
 
 # --- Path safety ------------------------------------------------------------

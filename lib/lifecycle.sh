@@ -78,6 +78,13 @@ guest_pkg_install() {
       # the postinst does — then re-run apt-get update with signatures enabled.
       linux_run "export DEBIAN_FRONTEND=noninteractive; \
         mkdir -p /etc/apt/trusted.gpg.d; \
+        if [ -f /etc/nsswitch.conf ]; then \
+          sed -i 's/^\\(passwd:.*\\)systemd/\\1/' /etc/nsswitch.conf; \
+          sed -i 's/^\\(group:.*\\)systemd/\\1/' /etc/nsswitch.conf; \
+          sed -i 's/^\\(shadow:.*\\)systemd/\\1/' /etc/nsswitch.conf; \
+          sed -i 's/^\\(gshadow:.*\\)systemd/\\1/' /etc/nsswitch.conf; \
+          sed -i 's/[[:space:]]*\$//' /etc/nsswitch.conf; \
+        fi; \
         _need_keyring=0; \
         [ -z \"\$(ls /etc/apt/trusted.gpg.d/ 2>/dev/null)\" ] && \
           [ ! -f /etc/apt/trusted.gpg ] && _need_keyring=1; \
