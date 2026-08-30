@@ -70,13 +70,13 @@ net_status_print() {
   local found_if=0
   if have_cmd ip; then
     while read -r iface ipaddr; do
-      [ -n "$iface" ] && [ -n "$ipaddr" ] || continue
+      if [ -z "$iface" ] || [ -z "$ipaddr" ]; then continue; fi
       printf '    • %-12s %s\n' "$iface:" "$ipaddr"
       found_if=1
     done < <(ip -o -4 addr show 2>/dev/null | awk '{print $2, $4}' | cut -d/ -f1)
   elif have_cmd ifconfig; then
     while read -r iface ipaddr; do
-      [ -n "$iface" ] && [ -n "$ipaddr" ] || continue
+      if [ -z "$iface" ] || [ -z "$ipaddr" ]; then continue; fi
       printf '    • %-12s %s\n' "$iface:" "$ipaddr"
       found_if=1
     done < <(ifconfig 2>/dev/null | awk '/^[a-zA-Z0-9]+/{iface=$1} /inet /{print iface, $2}' | sed 's/addr://')
