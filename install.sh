@@ -49,6 +49,20 @@ if [ "$IS_TERMUX" = 1 ]; then
   say "Termux detected."
   INSTALL_PARENT="${PREFIX}/opt"
   BIN_TARGET="${PREFIX}/bin/android-linux"
+  # Auto-install essential Termux packages if pkg is available
+  if have pkg; then
+    pkgs_to_install=()
+    have curl || pkgs_to_install+=(curl)
+    have git || pkgs_to_install+=(git)
+    have proot || pkgs_to_install+=(proot)
+    have tar || pkgs_to_install+=(tar)
+    have xz || pkgs_to_install+=(xz-utils)
+    if [ ${#pkgs_to_install[@]} -gt 0 ]; then
+      say "Auto-installing required Termux packages: ${pkgs_to_install[*]}..."
+      pkg update -y 2>/dev/null || true
+      pkg install -y "${pkgs_to_install[@]}" || warn "Failed to auto-install some packages. Proceeding with setup..."
+    fi
+  fi
 else
   say "Termux not detected. Continuing in a generic shell environment."
   warn "For non-rooted phones, Termux is strongly recommended. See README."

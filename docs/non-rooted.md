@@ -1,15 +1,20 @@
 # Non-rooted mode (PRoot)
 
 PRoot lets you run Linux without root by emulating `chroot` in userspace (via `ptrace`).
-It's the recommended path for unrooted devices and works inside Termux.
+It's the recommended path for unrooted devices and works seamlessly inside Termux.
 
-## Install PRoot
+## Getting Started with Termux
 
-Inside Termux:
+1. **Download Termux**:
+   - [F-Droid](https://f-droid.org/en/packages/com.termux/) (Recommended)
+   - [GitHub Releases](https://github.com/termux/termux-app/releases)
+   - *(Do not install from Google Play Store)*
 
-```bash
-pkg install proot
-```
+2. **One-Command Installation**:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh | bash
+   ```
+   The installer automatically handles installing `proot` and required tools via `pkg`.
 
 ## Install Linux with PRoot
 

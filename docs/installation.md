@@ -1,22 +1,48 @@
 # Installation
 
+## Termux Setup (Android)
+
+If you are running on an Android device (rooted or non-rooted), **Termux** provides the terminal environment.
+
+### 1. Download Termux
+
+> ⚠️ **DO NOT use the Google Play Store version of Termux.** It is deprecated and unmaintained. Use one of the official channels below:
+
+* **[F-Droid](https://f-droid.org/en/packages/com.termux/)** *(Recommended)*: Download the Termux APK directly or install the F-Droid client.
+* **[GitHub Releases](https://github.com/termux/termux-app/releases)**: Download the latest APK (e.g. `termux-app_v..._arm64-v8a.apk` or `universal`).
+
+### 2. Recommended Android Settings for Termux
+
+* **Battery Optimization**: Set Termux to **Unrestricted** / disable battery optimization in Android App Settings so background Linux operations aren't killed.
+* **Storage Access (Optional)**: If you want Linux to access your phone's downloads and internal storage, run:
+  ```bash
+  termux-setup-storage
+  ```
+
+---
+
 ## One-command install
 
-Replace `naveen-ramalingam` with your GitHub username after forking:
+In Termux or your terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh | bash
+```
+
+Or:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh)
 ```
 
-The bootstrap:
+The bootstrap automatically:
 
-1. Detects Termux.
-2. Verifies architecture.
-3. Verifies required utilities (`bash`, plus `curl`/`wget`/`git`).
-4. Downloads the project (git clone if available, else archive).
-5. Validates the archive before extracting.
-6. Installs the `android-linux` command into your PATH.
-7. Launches the first-run wizard.
+1. Detects Termux and auto-installs missing dependencies (`curl`, `git`, `proot`, `tar`, `xz-utils`).
+2. Verifies CPU architecture.
+3. Downloads AndroidLinux.
+4. Validates the archive before extracting.
+5. Installs the `android-linux` command into your PATH.
+6. Launches the first-run wizard.
 
 ## Manual install
 

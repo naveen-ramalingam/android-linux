@@ -43,8 +43,7 @@ The installer detects the best available method and recommends it.
 ## Requirements
 
 - An Android device (any manufacturer), **or** a Linux/macOS host for testing.
-- [Termux](https://f-droid.org/packages/com.termux/) from **F-Droid or GitHub**
-  (not the outdated Play Store build) for non-rooted devices.
+- **Termux** (for non-rooted Android devices): Download from **F-Droid** or **GitHub Releases** (see [Termux Download Guide](#termux-download-guide)).
 - ~2 GB free storage for a minimal install, ~5–6 GB with a desktop.
 - Root (Magisk / KernelSU / APatch) is **optional** — PRoot works without it.
 
@@ -59,19 +58,37 @@ The installer detects the best available method and recommends it.
 
 ---
 
+## Termux Download Guide
+
+> ⚠️ **IMPORTANT: DO NOT install Termux from the Google Play Store.**  
+> The Google Play Store build of Termux is obsolete and deprecated (last updated in 2020 due to Android SDK restrictions). Its package manager will fail to fetch updates and packages.
+
+### Recommended Download Sources
+
+1. **[F-Droid](https://f-droid.org/en/packages/com.termux/)** *(Recommended)*:
+   - Download and install the F-Droid app store or download the standalone Termux APK directly from the F-Droid page.
+2. **[GitHub Releases](https://github.com/termux/termux-app/releases)**:
+   - Download the latest APK asset (e.g. `termux-app_v..._arm64-v8a.apk` or `termux-app_v..._universal.apk`).
+
+---
+
 ## Quick start (one command)
 
-Replace `naveen-ramalingam` with your GitHub username after forking:
+Open Termux (or your shell) and run:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh | bash
 ```
 
 Or:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/naveen-ramalingam/android-linux/main/install.sh)
 ```
+
+> **Note:** The installer automatically detects Termux and runs `pkg update` and installs any missing packages (`curl`, `git`, `proot`, `tar`, `xz-utils`) automatically.
+
+Replace `naveen-ramalingam` with your GitHub username after forking:
 
 The bootstrap script detects Termux, checks your architecture and required tools,
 downloads the project, installs the `android-linux` command, and launches the
