@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-30
+
+### Added
+- Automatic dependency resolution: before installing, AndroidLinux detects missing
+  tools (downloader, `tar`, the distro's decompressor such as `xz-utils`, a checksum
+  tool, and `proot`) and, inside Termux, installs them via `pkg` with a single
+  confirmation. Hard requirements block install only if they cannot be installed;
+  `proot` is soft (needed to enter, not to extract) and only warns outside Termux.
+
+### Changed
+- Install flow runs dependency resolution first so a missing `xz-utils` is fixed
+  automatically instead of failing during extraction.
+- Dry-run previews missing/auto-installable packages without requiring them.
+
 ## [1.1.0] - 2026-08-30
 
 ### Security

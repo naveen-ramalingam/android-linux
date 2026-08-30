@@ -10,15 +10,21 @@ It prints `PASS` / `WARN` / `FAIL` for each check along with suggested fixes.
 
 ## Common issues
 
+> **Note:** As of v1.2.0, AndroidLinux detects missing tools (`proot`, `xz-utils`,
+> `tar`, a downloader, a checksum tool) and installs them automatically via `pkg`
+> inside Termux. You normally don't need to install these by hand.
+
 ### `proot is not installed`
-PRoot mode needs the `proot` binary. Inside Termux:
+PRoot mode needs the `proot` binary. It is installed automatically during setup; if you
+declined or are outside Termux, install it manually:
 
 ```bash
 pkg install proot
 ```
 
 ### `xz missing` warning
-Debian and Ubuntu rootfs archives are `.tar.xz`. Install the decoder:
+Debian and Ubuntu rootfs archives are `.tar.xz`. The `xz-utils` decoder is installed
+automatically during setup; to install it manually:
 
 ```bash
 pkg install xz-utils     # Termux

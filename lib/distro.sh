@@ -18,6 +18,114 @@ distro_resolve() {
   export DISTRO_FN DISTRO_SUITE DISTRO_DISPLAY DISTRO_HAS_CHECKSUM
 }
 
+# distro_decoder: decompressor required for the selected distro's rootfs.
+distro_decoder() {
+  case "${DISTRO_FN:-debian}" in
+    debian) printf 'xz' ;;     # LXC images are .tar.xz
+    *)      printf 'gzip' ;;   # ubuntu/alpine/archarm are .tar.gz
+  esac
+}
+
+# termux_pkg_for: map a required capability to its Termux package name.
+termux_pkg_for() {
+  case "$1" in
+    xz)        printf 'xz-utils' ;;
+    zstd)      printf 'zstd' ;;
+    gzip)      printf 'gzip' ;;
+    tar)       printf 'tar' ;;
+    curl)      printf 'curl' ;;
+    wget)      printf 'wget' ;;
+    proot)     printf 'proot' ;;
+    coreutils) printf 'coreutils' ;;
+    *)         printf '' ;;
+  esac
+}
+
+# ensure_dependencies: detect tools needed for the selected distro/mode and,
+# inside Termux, install them via `pkg`.
+#   - HARD deps (downloader, tar, decompressor, checksum) are required to
+#     download/verify/extract; install aborts if one is missing and cannot be
+#     installed.
+#   - SOFT deps (proot) are only needed to enter the environment later; a
+#     missing soft dep warns but does not block extraction.
+ensure_dependencies() {
+  local -a hard=() soft=()
+  local cap pkg
+
+  if ! have_cmd curl && ! have_cmd wget && ! have_cmd aria2c; then
+    hard+=(curl)
+  fi
+  have_cmd tar || hard+=(tar)
+  local dec; dec=$(distro_decoder)
+  have_cmd "$dec" || hard+=("$dec")
+  if ! have_cmd sha256sum && ! have_cmd shasum && ! have_cmd openssl; then
+    hard+=(coreutils)
+  fi
+  if [ "${INSTALL_MODE:-}" = "proot" ] && ! have_cmd proot; then
+    soft+=(proot)
+  fi
+
+  if [ ${#hard[@]} -eq 0 ] && [ ${#soft[@]} -eq 0 ]; then
+    log_debug "All required dependencies present."
+    return 0
+  fi
+  [ ${#hard[@]} -gt 0 ] && log_warn "Missing required tools: ${hard[*]}"
+  [ ${#soft[@]} -gt 0 ] && log_warn "Missing tools (needed to enter the environment): ${soft[*]}"
+
+  # Map capabilities -> Termux packages (dedup, drop unmapped ones).
+  local -a pkgs=() p
+  for cap in "${hard[@]:-}" "${soft[@]:-}"; do
+    [ -n "$cap" ] || continue
+    pkg=$(termux_pkg_for "$cap")
+    [ -n "$pkg" ] || continue
+    local dup=0
+    for p in "${pkgs[@]:-}"; do [ "$p" = "$pkg" ] && dup=1; done
+    [ "$dup" = 0 ] && pkgs+=("$pkg")
+  done
+
+  # Dry run: preview only. Never require or install tools in this mode.
+  if [ "${ANDROID_LINUX_DRY_RUN:-0}" = "1" ]; then
+    if [ "${IS_TERMUX:-0}" = "1" ] && have_cmd pkg && [ ${#pkgs[@]} -gt 0 ]; then
+      log_info "[dry-run] would install packages: ${pkgs[*]}"
+    else
+      log_info "[dry-run] missing tools - required: ${hard[*]:-none}, optional: ${soft[*]:-none}"
+    fi
+    return 0
+  fi
+
+  if [ "${IS_TERMUX:-0}" = "1" ] && have_cmd pkg && [ ${#pkgs[@]} -gt 0 ]; then
+    if confirm "Install missing packages via pkg (${pkgs[*]})?" Y; then
+      log_info "Running: pkg install ${pkgs[*]}"
+      if pkg install -y "${pkgs[@]}"; then
+        log_ok "Installed: ${pkgs[*]}"
+        return 0
+      fi
+      if [ ${#hard[@]} -gt 0 ]; then
+        error_report "pkg install failed for required tools: ${pkgs[*]}" \
+          "The package manager returned an error." \
+          "Run 'pkg update' then 'pkg install ${pkgs[*]}' manually and re-run."
+        return 1
+      fi
+      log_warn "pkg install failed; continuing, but install the optional tools later."
+      return 0
+    fi
+    if [ ${#hard[@]} -gt 0 ]; then
+      log_error "Required tools are missing and automatic install was declined."
+      return 1
+    fi
+    log_warn "Optional tools not installed; you may not be able to enter the environment yet."
+    return 0
+  fi
+
+  # Not Termux: cannot auto-install.
+  if [ ${#hard[@]} -gt 0 ]; then
+    log_warn "Install these required tools with your package manager, then re-run: ${hard[*]}"
+    return 1
+  fi
+  log_warn "Continuing, but install these to use the environment: ${soft[*]}"
+  return 0
+}
+
 # --- HTTP helpers -----------------------------------------------------------
 # fetch_to_stdout: print a URL body to stdout (for small index files).
 fetch_to_stdout() {

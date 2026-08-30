@@ -268,9 +268,10 @@ mode_choice_default() {
 }
 
 do_install() {
+  distro_resolve "$DISTRO" || return 1
+  ensure_dependencies || return 1
   fs_init_layout "$LINUX_BASE" || return 1
   state_set DETECTED
-  distro_resolve "$DISTRO" || return 1
   log_info "Preparing $DISTRO_DISPLAY ($(arch_label)) in $(mode_label "$INSTALL_MODE") mode"
   distro_download || return 1
   distro_verify || return 1

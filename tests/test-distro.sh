@@ -36,4 +36,43 @@ MIN=$(fs_estimate_bytes alpine none)
 GUI=$(fs_estimate_bytes alpine xfce)
 assert_true bash -c "[ $GUI -gt $MIN ]" "desktop estimate larger than minimal"
 
+# Dependency resolution
+distro_resolve debian >/dev/null
+assert_eq "xz" "$(distro_decoder)" "debian rootfs needs xz"
+distro_resolve alpine >/dev/null
+assert_eq "gzip" "$(distro_decoder)" "alpine rootfs needs gzip"
+assert_eq "xz-utils" "$(termux_pkg_for xz)" "xz maps to Termux xz-utils"
+assert_eq "proot" "$(termux_pkg_for proot)" "proot maps to Termux proot"
+assert_eq "coreutils" "$(termux_pkg_for coreutils)" "checksum maps to coreutils"
+
+# On a fully-equipped (non-Termux) host, no packages are needed -> success.
+if have_cmd xz && have_cmd tar && have_cmd curl; then
+  DISTRO_FN=debian INSTALL_MODE=chroot IS_TERMUX=0
+  assert_true ensure_dependencies "deps satisfied on a fully-equipped host"
+fi
+
+# Simulate Termux with xz + proot missing: a fake `pkg` should be invoked to
+# auto-install them (xz-utils, proot).
+FAKEBIN="$TEST_TMP/fakebin"; mkdir -p "$FAKEBIN"
+for t in tar gzip curl shasum grep sed head basename cat mkdir date sh bash; do
+  _tp=$(command -v "$t" 2>/dev/null) && ln -sf "$_tp" "$FAKEBIN/$t"
+done
+cat >"$FAKEBIN/pkg" <<EOF
+#!/bin/bash
+echo "\$*" >> "$FAKEBIN/pkg.log"
+exit 0
+EOF
+chmod +x "$FAKEBIN/pkg"
+if ( PATH="$FAKEBIN"; IS_TERMUX=1; INSTALL_MODE=proot; DISTRO_FN=debian; \
+     ANDROID_LINUX_ASSUME_YES=1; ensure_dependencies >/dev/null 2>&1 ); then
+  TEST_PASS=$((TEST_PASS+1)); printf '  [PASS] Termux auto-install path succeeded\n'
+else
+  TEST_FAIL=$((TEST_FAIL+1)); printf '  [FAIL] Termux auto-install path failed\n'
+fi
+if grep -q "xz-utils" "$FAKEBIN/pkg.log" 2>/dev/null && grep -q "proot" "$FAKEBIN/pkg.log" 2>/dev/null; then
+  TEST_PASS=$((TEST_PASS+1)); printf '  [PASS] pkg was asked to install xz-utils + proot\n'
+else
+  TEST_FAIL=$((TEST_FAIL+1)); printf '  [FAIL] pkg not invoked with xz-utils/proot\n'
+fi
+
 test_summary
