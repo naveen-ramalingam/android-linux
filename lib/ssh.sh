@@ -16,8 +16,11 @@ ssh_install() {
   esac
 
   SSH_PORT="$port"; config_set SSH_PORT "$port"
-  # Configure sshd to use the non-conflicting port and generate host keys.
-  linux_run "mkdir -p /etc/ssh && sed -i 's/^#\\?Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
+  # Configure sshd to use the non-conflicting port, permit password auth, root login, and generate host keys.
+  linux_run "mkdir -p /etc/ssh /run/sshd /var/run/sshd /var/empty"
+  linux_run "sed -i 's/^#\\?Port .*/Port ${port}/' /etc/ssh/sshd_config 2>/dev/null || printf 'Port %s\n' '${port}' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^#\\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PermitRootLogin yes\n' >> /etc/ssh/sshd_config"
+  linux_run "sed -i 's/^#\\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || printf 'PasswordAuthentication yes\n' >> /etc/ssh/sshd_config"
   linux_run "ssh-keygen -A 2>/dev/null || true"
 
   # Create the Linux user if missing.
@@ -60,18 +63,42 @@ ssh_ensure_user() {
   fi
 }
 
+ssh_is_running() {
+  if [ "${INSTALL_MODE:-}" = "chroot" ] && [ "${ROOT_AVAILABLE:-0}" = "1" ]; then
+    run_as_root pgrep -x sshd >/dev/null 2>&1
+  else
+    pgrep -x sshd >/dev/null 2>&1
+  fi
+}
+
 ssh_start() {
   local port="${SSH_PORT:-2222}"
   validate_port "$port" || { log_error "Invalid SSH port: $port"; return 1; }
   log_info "Starting sshd on port ${port}..."
+  linux_run "mkdir -p /run/sshd /var/run/sshd /var/empty /etc/ssh"
+  linux_run "ssh-keygen -A 2>/dev/null || true"
   case "${DISTRO_FN:-debian}" in
     alpine) linux_run "/usr/sbin/sshd -p ${port}" ;;
-    *) linux_run "mkdir -p /run/sshd; /usr/sbin/sshd -p ${port}" ;;
+    *) linux_run "/usr/sbin/sshd -p ${port}" ;;
   esac
+  if ssh_is_running; then
+    log_ok "sshd is running on port ${port}"
+  fi
   ssh_connection_info "$port" "${LINUX_USER:-android}"
 }
 
 ssh_stop() { linux_run "pkill -x sshd 2>/dev/null || true"; log_ok "sshd stopped"; }
+
+ssh_status() {
+  local port="${SSH_PORT:-2222}"
+  if ssh_is_running; then
+    printf '\nSSH server: %sRUNNING%s (port %s)\n' "$C_GREEN" "$C_RESET" "$port"
+    ssh_connection_info "$port" "${LINUX_USER:-android}"
+  else
+    printf '\nSSH server: %sSTOPPED%s (port %s)\n' "$C_YELLOW" "$C_RESET" "$port"
+    printf 'Start it with:  android-linux ssh start\n\n'
+  fi
+}
 
 ssh_connection_info() {
   local port="${1:-${SSH_PORT:-2222}}" user="${2:-${LINUX_USER:-android}}"

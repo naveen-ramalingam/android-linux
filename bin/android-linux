@@ -356,11 +356,11 @@ menu_desktop() {
 
 menu_ssh() {
   printf '\n%s--- SSH Server Management ---%s\n' "$C_BOLD" "$C_RESET"
-  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET"
+  printf '  %s[1]%s Install  %s[2]%s Start  %s[3]%s Stop  %s[4]%s Status\n\n' "$C_CYAN" "$C_RESET" "$C_GREEN" "$C_RESET" "$C_YELLOW" "$C_RESET" "$C_CYAN" "$C_RESET"
   local c; c=$(ask "SSH" "")
   case "$c" in
     1) ssh_install "${SSH_PORT:-2222}" ;;
-    2) ssh_start ;; 3) ssh_stop ;;
+    2) ssh_start ;; 3) ssh_stop ;; 4) ssh_status ;;
   esac
 }
 
@@ -423,8 +423,8 @@ main() {
     ssh) detect_all
          case "${ARGS[0]:-}" in
            install) ssh_install "${SSH_PORT:-2222}" ;;
-           start) ssh_start ;; stop) ssh_stop ;;
-           *) printf 'Usage: android-linux ssh {install|start|stop}\n' ;;
+           start) ssh_start ;; stop) ssh_stop ;; status) ssh_status ;;
+           *) printf 'Usage: android-linux ssh {install|start|stop|status}\n' ;;
          esac ;;
     desktop) detect_all
          case "${ARGS[0]:-}" in
